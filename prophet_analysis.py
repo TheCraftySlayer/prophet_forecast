@@ -143,22 +143,27 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
         # Load CSV file
         df = pd.read_csv(path)
 
-        # Date column is consistently named "date"
-        date_col = "date"
+        # If the file has no header ("date" column missing), re-read with header=None
+        if 'date' not in df.columns:
+            df = pd.read_csv(path, header=None)
+            cols = list(df.columns)
+            if len(cols) >= 2:
+                df.columns = ['date', 'value'] + cols[2:]
+            else:
+                df.columns = ['date', 'value']
+
+        date_col = 'date'
 
         # Set the appropriate value column based on file type
-        if metric == "call":
-            value_col = 'Count of Calls'  # For calls.csv
-        elif metric == "visit":
-            value_col = 'Visits'  # For visitors.csv
-        else:  # For queries.csv
-            value_col = 'query_count'
+        if metric == 'call':
+            value_col_options = ['Count of Calls', 'call_count', 'value']
+        elif metric == 'visit':
+            value_col_options = ['Visits', 'visit_count', 'value']
+        else:
+            value_col_options = ['query_count', 'value']
 
-        # Fallback option if value column not found
-        if value_col not in df.columns:
-            value_col = next(
-                (c for c in df.columns if metric.lower() in c.lower()),
-                df.columns[1])
+        value_col = next((c for c in df.columns if c in value_col_options or
+                          metric.lower() in c.lower()), df.columns[1])
 
     elif file_ext.endswith('.xlsx') or file_ext.endswith('.xls'):
         # Handle Excel files with explicit engine
@@ -181,7 +186,19 @@ def verify_date_formats(call_path, visit_path, chat_path):
     visit_df = pd.read_csv(visit_path)
     chat_df = pd.read_csv(chat_path)
 
-    # Check a few date samples from each file
+    # If a file lacked headers, re-read with names
+    if 'date' not in call_df.columns:
+        call_df = pd.read_csv(call_path, header=None, names=['date', 'call_count'])
+    if 'date' not in visit_df.columns:
+        visit_df = pd.read_csv(visit_path, header=None, names=['date', 'visit_count'])
+    if 'date' not in chat_df.columns:
+        chat_df = pd.read_csv(chat_path, header=None, names=['date', 'query_count'])
+
+    # Handle files without headers by renaming the first column to 'date'
+    for df in (call_df, visit_df, chat_df):
+        if 'date' not in df.columns:
+            df.rename(columns={df.columns[0]: 'date'}, inplace=True)
+
     print("Date format samples:")
     print(f"Calls: {call_df['date'].iloc[0]}")
     print(f"Visits: {visit_df['date'].iloc[0]}")
@@ -1668,9 +1685,18 @@ def predict_next_day_calls(model_path=None):
         with open(model_path, 'rb') as f:
             model = pickle.load(f)
     else:
-        logger.warning("No saved model found, predictions may not be accurate")
-        # Create a minimal model for testing
-        model = Prophet()
+        logger.warning("No saved model found - training simple model from calls.csv")
+        try:
+            df = pd.read_csv('calls.csv', header=None, names=['date', 'call_count'])
+            prophet_df = pd.DataFrame({
+                'ds': pd.to_datetime(df['date']),
+                'y': df['call_count'].astype(float)
+            })
+            model = Prophet()
+            model.fit(prophet_df)
+        except Exception as e:
+            logger.error(f"Failed to train fallback model: {str(e)}")
+            raise
     
     # Get next business day
     today = pd.Timestamp.today()
