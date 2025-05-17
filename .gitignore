@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+env/
+venv/
+ENV/
+.venv/
+
+# Environment variable files
+.env
+*.env
+
+# Prophet output and generated artifacts
+prophet_output/
+*.png
+*.xlsx
+*.pkl
