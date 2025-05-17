@@ -1683,6 +1683,7 @@ def predict_next_day_calls(model_path=None):
     """
     Predict call volume for the next business day with detailed diagnostics
     """
+    logger = setup_logging()
     # Option 1: Load pre-trained model if available
     if model_path and Path(model_path).exists():
         logger.info(f"Loading model from {model_path}")
