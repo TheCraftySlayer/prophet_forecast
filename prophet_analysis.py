@@ -583,7 +583,7 @@ def prepare_prophet_data(df):
     return prophet_df
 
 
-def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=30):
+def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=30, model_params=None):
     """
     Train Prophet model with custom components
     
@@ -592,6 +592,7 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         holidays_df: DataFrame with holiday information
         regressors_df: DataFrame with regressor variables
         future_periods: Number of days to forecast
+        model_params: Optional dictionary of parameters to pass to Prophet
         
     Returns:
         Trained Prophet model, forecast DataFrame, future DataFrame
@@ -599,15 +600,20 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     logger = logging.getLogger(__name__)
     logger.info("Training Prophet model")
     
-    # Initialize Prophet model
-    model = Prophet(
-        yearly_seasonality=True,
-        weekly_seasonality=True,
-        daily_seasonality=False,  # Not needed as we capture day of week effects
-        seasonality_mode='multiplicative',  # Better for call volumes
-        changepoint_prior_scale=0.05,  # Allow moderate flexibility in trend
-        holidays=holidays_df
-    )
+    # Initialize Prophet model with optional tuned parameters
+    default_params = {
+        'yearly_seasonality': True,
+        'weekly_seasonality': True,
+        'daily_seasonality': False,  # Not needed as we capture day of week effects
+        'seasonality_mode': 'multiplicative',  # Better for call volumes
+        'changepoint_prior_scale': 0.05,  # Allow moderate flexibility in trend
+        'holidays': holidays_df
+    }
+
+    if model_params:
+        default_params.update(model_params)
+
+    model = Prophet(**default_params)
     
     # Add key regressor variables
     important_regressors = [
@@ -1968,12 +1974,13 @@ def main(argv=None):
             logger.info("Applying log transformation to target variable")
             prophet_df['y'] = np.log1p(prophet_df['y'])
 
-        # Train Prophet model
+        # Train Prophet model using tuned hyperparameters
         model, forecast, future = train_prophet_model(
-            prophet_df, 
-            holidays_df, 
-            regressors, 
-            future_periods=30
+            prophet_df,
+            holidays_df,
+            regressors,
+            future_periods=30,
+            model_params=best_params
         )
         
         # Try to create ensemble model, but continue with single model if it fails
