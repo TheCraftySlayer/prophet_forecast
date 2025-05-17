@@ -1480,8 +1480,11 @@ def analyze_press_release_impact_prophet(forecast, output_dir):
 
 def export_prophet_forecast(model, forecast, df, output_dir):
     """
-    Export Prophet forecast to Excel
-    
+    Export Prophet forecast to Excel.
+
+    The exported workbook now includes model performance for the
+    previous 14 business days and a forecast for the next business day.
+
     Args:
         model: Trained Prophet model
         forecast: Prophet forecast DataFrame
@@ -1497,29 +1500,31 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     # Define output file
     output_file = output_dir / "prophet_call_predictions.xlsx"
     
-    # Get the last week of business days
+    # Get the past 14 business days
     today = pd.Timestamp.today()
-    last_week = pd.date_range(end=today, periods=5, freq='B')
+    recent_days = pd.date_range(end=today, periods=14, freq='B')
     
     # Get the next business day
     next_day = today + pd.Timedelta(days=1)
     if next_day.weekday() >= 5:  # Weekend
         next_day = next_day + pd.Timedelta(days=7 - next_day.weekday())
     
-    # Get predictions for last week
-    last_week_forecast = forecast[forecast['ds'].isin(last_week)].copy()
-    last_week_forecast['actual'] = np.nan
+    # Get predictions for the past 14 days
+    recent_forecast = forecast[forecast['ds'].isin(recent_days)].copy()
+    recent_forecast['actual'] = np.nan
     
     # Get actual values if available
-    for i, date in enumerate(last_week):
+    for i, date in enumerate(recent_days):
         if date in df.index:
-            last_week_forecast.loc[last_week_forecast['ds'] == date, 'actual'] = df.loc[date, 'call_count']
+            recent_forecast.loc[recent_forecast['ds'] == date, 'actual'] = df.loc[date, 'call_count']
     
     # Calculate errors
-    last_week_forecast['error'] = last_week_forecast['actual'] - last_week_forecast['yhat']
-    last_week_forecast['abs_error'] = np.abs(last_week_forecast['error'])
-    last_week_forecast['pct_error'] = (last_week_forecast['abs_error'] / 
-                                      last_week_forecast['actual'].replace(0, np.nan)) * 100
+    recent_forecast['error'] = recent_forecast['actual'] - recent_forecast['yhat']
+    recent_forecast['abs_error'] = np.abs(recent_forecast['error'])
+    recent_forecast['pct_error'] = (
+        recent_forecast['abs_error'] /
+        recent_forecast['actual'].replace(0, np.nan)
+    ) * 100
     
     # Get next day forecast
     next_day_forecast = forecast[forecast['ds'] == next_day].copy()
@@ -1554,18 +1559,18 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     
     # Create Excel writer
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-        # Last week performance
-        last_week_performance = pd.DataFrame({
-            'date': last_week_forecast['ds'],
-            'predicted': last_week_forecast['yhat'],
-            'actual': last_week_forecast['actual'],
-            'lower_bound': last_week_forecast['yhat_lower'],
-            'upper_bound': last_week_forecast['yhat_upper'],
-            'error': last_week_forecast['error'],
-            'abs_error': last_week_forecast['abs_error'],
-            'pct_error': last_week_forecast['pct_error']
+        # Past 14-day performance
+        recent_performance = pd.DataFrame({
+            'date': recent_forecast['ds'],
+            'predicted': recent_forecast['yhat'],
+            'actual': recent_forecast['actual'],
+            'lower_bound': recent_forecast['yhat_lower'],
+            'upper_bound': recent_forecast['yhat_upper'],
+            'error': recent_forecast['error'],
+            'abs_error': recent_forecast['abs_error'],
+            'pct_error': recent_forecast['pct_error']
         })
-        last_week_performance.to_excel(writer, sheet_name='Last Week Performance', index=False)
+        recent_performance.to_excel(writer, sheet_name='Recent 14-Day Performance', index=False)
         
         # Next day forecast
         next_day_df.to_excel(writer, sheet_name='Next Day Forecast', index=False)
@@ -1616,7 +1621,8 @@ def export_prophet_forecast(model, forecast, df, output_dir):
                 'Prophet automatically handles multiple seasonality patterns, holidays, and special events.',
                 f'Next day forecast is for {next_day.strftime("%A, %B %d, %Y")}.',
                 'Prediction intervals represent uncertainty in the forecast.',
-                'Model accounts for day-of-week patterns, monthly seasonality, holidays, and special events.'
+                'Model accounts for day-of-week patterns, monthly seasonality, holidays, and special events.',
+                'The "Recent 14-Day Performance" sheet compares predictions with actuals for the last 14 business days.'
             ]
         })
         notes.to_excel(writer, sheet_name='Notes', index=False)
