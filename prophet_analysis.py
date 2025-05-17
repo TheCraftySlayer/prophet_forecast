@@ -61,11 +61,11 @@ def tune_prophet_hyperparameters(prophet_df):
     logger = logging.getLogger(__name__)
     logger.info("Tuning Prophet hyperparameters")
     
-    # Simple parameter grid
+    # Expanded parameter grid for broader search
     param_grid = {
-        'changepoint_prior_scale': [0.05, 0.1, 0.5],
-        'seasonality_prior_scale': [1.0, 10.0, 20.0],
-        'holidays_prior_scale': [1.0, 10.0]
+        'changepoint_prior_scale': [0.01, 0.05, 0.1, 0.5],
+        'seasonality_prior_scale': [1.0, 10.0, 20.0, 30.0],
+        'holidays_prior_scale': [1.0, 5.0, 10.0]
     }
     
     # Generate all combinations
@@ -1935,6 +1935,11 @@ def main(argv=None):
         action="store_true",
         help="Skip feature importance analysis",
     )
+    parser.add_argument(
+        "--cross-validate",
+        action="store_true",
+        help="Run full cross-validation after training",
+    )
 
     args = parser.parse_args(argv)
 
@@ -1947,6 +1952,7 @@ def main(argv=None):
     handle_outliers_method = args.handle_outliers
     use_transformation = str(args.use_transformation).lower() == "true"
     skip_feature_importance = args.skip_feature_importance
+    run_cross_validation = args.cross_validate
 
     # Check if files exist
     for p in [call_path, visit_path, chat_path]:
@@ -2073,47 +2079,50 @@ def main(argv=None):
             
             # Analyze press release impact
             press_release_impact = analyze_press_release_impact_prophet(forecast, output_dir)
-            
-            # Instead of full cross-validation, use simplified evaluation
-            try:
-                logger.info("Evaluating model with simplified approach")
-                # Split data for evaluation
-                train_size = int(len(prophet_df) * 0.8)
-                test_prophet_df = prophet_df.iloc[train_size:].copy()
-                test_dates = test_prophet_df['ds']
-                
-                # Get predictions for test period
-                test_forecast = forecast[forecast['ds'].isin(test_dates)]
-                
-                # Calculate error metrics
-                y_true = test_prophet_df['y'].values
-                y_pred = test_forecast['yhat'].values
-                
-                mae = mean_absolute_error(y_true, y_pred)
-                
+
+            if run_cross_validation:
                 try:
-                    # Newer scikit-learn versions
-                    rmse = mean_squared_error(y_true, y_pred, squared=False)
-                except TypeError:
-                    # Older scikit-learn versions
-                    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-                
-                # Calculate MAPE manually
-                nonzero = y_true != 0
-                mape = (np.abs(y_true[nonzero] - y_pred[nonzero]) / np.abs(y_true[nonzero])).mean() * 100
-                
-                # Create summary dataframe
-                perf_summary = pd.DataFrame({
-                    "metric": ["MAE", "RMSE", "MAPE"],
-                    "value": [mae, rmse, mape]
-                })
-                
-                # Save performance metrics
-                perf_summary.to_csv(output_dir / "performance_metrics.csv", index=False)
-                logger.info(f"Model evaluation: MAE={mae:.2f}, RMSE={rmse:.2f}, MAPE={mape:.2f}%")
-                
-            except Exception as e:
-                logger.warning(f"Model evaluation failed: {str(e)}")
+                    logger.info("Evaluating model with cross-validation")
+                    df_cv, df_p, summary = evaluate_prophet_model(model, prophet_df)
+                    df_p.to_csv(output_dir / "cross_validation_metrics.csv", index=False)
+                    summary.to_csv(output_dir / "cross_validation_summary.csv", index=False)
+                except Exception as e:
+                    logger.warning(f"Cross-validation failed: {str(e)}")
+            else:
+                # Simplified evaluation
+                try:
+                    logger.info("Evaluating model with simplified approach")
+                    train_size = int(len(prophet_df) * 0.8)
+                    test_prophet_df = prophet_df.iloc[train_size:].copy()
+                    test_dates = test_prophet_df['ds']
+
+                    test_forecast = forecast[forecast['ds'].isin(test_dates)]
+
+                    y_true = test_prophet_df['y'].values
+                    y_pred = test_forecast['yhat'].values
+
+                    mae = mean_absolute_error(y_true, y_pred)
+
+                    try:
+                        rmse = mean_squared_error(y_true, y_pred, squared=False)
+                    except TypeError:
+                        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+
+                    nonzero = y_true != 0
+                    mape = (np.abs(y_true[nonzero] - y_pred[nonzero]) / np.abs(y_true[nonzero])).mean() * 100
+
+                    perf_summary = pd.DataFrame({
+                        "metric": ["MAE", "RMSE", "MAPE"],
+                        "value": [mae, rmse, mape]
+                    })
+
+                    perf_summary.to_csv(output_dir / "performance_metrics.csv", index=False)
+                    logger.info(
+                        f"Model evaluation: MAE={mae:.2f}, RMSE={rmse:.2f}, MAPE={mape:.2f}%"
+                    )
+
+                except Exception as e:
+                    logger.warning(f"Model evaluation failed: {str(e)}")
             
             # Create dashboard
             create_prophet_dashboard(model, forecast, df, output_dir)
