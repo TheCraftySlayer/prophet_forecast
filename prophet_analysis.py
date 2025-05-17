@@ -446,30 +446,13 @@ def prepare_data(call_path,
 
     # Update 2025 NOV season to full May
     df.loc[nov_mask_2025, "nov_season_flag"] = 1
-    
-    # Create busy season flag (April 1 - July 31)
-    df["busy_season_flag"] = 0
 
-    # 2023 busy season (April 1 - July 31, 2023)
-    busy_start_2023 = pd.Timestamp(2023, 4, 1)
-    busy_end_2023 = pd.Timestamp(2023, 7, 31)
-    busy_mask_2023 = (df.index >= busy_start_2023) & (df.index
-                                                      <= busy_end_2023)
-    df.loc[busy_mask_2023, "busy_season_flag"] = 1
-
-    # 2024 busy season (April 1 - July 31, 2024)
-    busy_start_2024 = pd.Timestamp(2024, 4, 1)
-    busy_end_2024 = pd.Timestamp(2024, 7, 31)
-    busy_mask_2024 = (df.index >= busy_start_2024) & (df.index
-                                                      <= busy_end_2024)
-    df.loc[busy_mask_2024, "busy_season_flag"] = 1
-
-    # 2025 busy season (April 1 - July 31, 2025)
-    busy_start_2025 = pd.Timestamp(2025, 4, 1)
-    busy_end_2025 = pd.Timestamp(2025, 7, 31)
-    busy_mask_2025 = (df.index >= busy_start_2025) & (df.index
-                                                      <= busy_end_2025)
-    df.loc[busy_mask_2025, "busy_season_flag"] = 1
+    # ------------------------------------------------------------------
+    # Separate seasonal peak flags for April and November
+    # ------------------------------------------------------------------
+    logger.info("Creating April and November peak flags")
+    df["april_peak_flag"] = (df.index.month == 4).astype(int)
+    df["november_peak_flag"] = ((df.index.month == 11) & (df.index.day <= 14)).astype(int)
 
     # Press release features - key assessment dates
     logger.info("Creating press release features")
@@ -634,7 +617,8 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         'seasonality_mode': 'multiplicative',  # Better for call volumes
         'changepoint_prior_scale': 0.05,  # Allow moderate flexibility in trend
         'holidays': holidays_df,
-        'growth': 'logistic'
+        'growth': 'logistic',
+        'changepoints': [pd.Timestamp('2025-05-01')]
     }
 
     if model_params:
@@ -647,8 +631,13 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     
     # Add key regressor variables
     important_regressors = [
-        'busy_season_flag', 'nov_season_flag', 'mailout_flag',
-        'may_2025_policy_changes'
+        'april_peak_flag',
+        'november_peak_flag',
+        'nov_season_flag',
+        'mailout_flag',
+        'may_2025_policy_changes',
+        'visit_count',
+        'chatbot_count'
     ]
     
     for regressor in important_regressors:
@@ -678,10 +667,10 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
                     future.loc[i, regressor] = prophet_df.loc[prophet_df['ds'] == ds, regressor].values[0]
                 else:
                     # For future dates, use reasonable defaults
-                    if regressor == 'busy_season_flag':
-                        # Check if date is in busy season (April-July)
-                        month = ds.month
-                        future.loc[i, regressor] = 1 if month >= 4 and month <= 7 else 0
+                    if regressor == 'april_peak_flag':
+                        future.loc[i, regressor] = 1 if ds.month == 4 else 0
+                    elif regressor == 'november_peak_flag':
+                        future.loc[i, regressor] = 1 if (ds.month == 11 and ds.day <= 14) else 0
                     elif regressor == 'nov_season_flag':
                         # Check if date is in NOV season (April/May depending on year)
                         year, month = ds.year, ds.month
@@ -702,6 +691,7 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     # Make forecast
     logger.info("Making forecast")
     forecast = model.predict(future)
+    forecast[['yhat', 'yhat_lower', 'yhat_upper']] = forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
     
     return model, forecast, future
 
@@ -741,8 +731,13 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     
     # Add same regressors to all models
     important_regressors = [
-        'busy_season_flag', 'nov_season_flag', 'mailout_flag',
-        'may_2025_policy_changes'
+        'april_peak_flag',
+        'november_peak_flag',
+        'nov_season_flag',
+        'mailout_flag',
+        'may_2025_policy_changes',
+        'visit_count',
+        'chatbot_count'
     ]
     
     # Add regressors to each model and fit them
@@ -776,10 +771,10 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                         future.loc[j, regressor] = model_prophet_df.loc[matched_rows, regressor].iloc[0]
                     else:
                         # For future dates, use reasonable defaults
-                        if regressor == 'busy_season_flag':
-                            # Check if date is in busy season (April-July)
-                            month = ds.month
-                            future.loc[j, regressor] = 1 if month >= 4 and month <= 7 else 0
+                        if regressor == 'april_peak_flag':
+                            future.loc[j, regressor] = 1 if ds.month == 4 else 0
+                        elif regressor == 'november_peak_flag':
+                            future.loc[j, regressor] = 1 if (ds.month == 11 and ds.day <= 14) else 0
                         elif regressor == 'nov_season_flag':
                             # Check if date is in NOV season (April/May depending on year)
                             year, month = ds.year, ds.month
@@ -821,6 +816,10 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     # For each row, get the minimum lower bound and maximum upper bound
     ensemble_forecast['yhat_lower'] = pd.concat(lower_bounds, axis=1).min(axis=1)
     ensemble_forecast['yhat_upper'] = pd.concat(upper_bounds, axis=1).max(axis=1)
+
+    ensemble_forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
+        ensemble_forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
+    )
     
     return ensemble_forecast, models
 
@@ -1057,9 +1056,15 @@ def analyze_prophet_components(model, forecast, output_dir):
                 plt.close()
 
 
-def cross_validate_prophet(model, df, periods=30, horizon='30 days'):
-    """Simple cross-validation for a Prophet model"""
-    df_cv = cross_validation(model, initial='180 days', period=periods, horizon=horizon)
+def cross_validate_prophet(model, df, periods=14, horizon='14 days'):
+    """Simple cross-validation for a Prophet model using a rolling origin."""
+    df_cv = cross_validation(
+        model,
+        initial='180 days',
+        period=f'{periods} days',
+        horizon=horizon,
+        parallel="processes",
+    )
     df_p = performance_metrics(df_cv)
     return df_p['rmse'].mean()
 
@@ -1079,9 +1084,17 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
     logger.info("Analyzing feature importance (quick_mode=%s)", quick_mode)
     
     # Create versions of the data with one feature removed at a time
-    features = ['busy_season_flag', 'nov_season_flag', 
-                'mailout_flag', 'may_2025_policy_changes',
-                'yearly_seasonality', 'weekly_seasonality']
+    features = [
+        'april_peak_flag',
+        'november_peak_flag',
+        'nov_season_flag',
+        'mailout_flag',
+        'may_2025_policy_changes',
+        'visit_count',
+        'chatbot_count',
+        'yearly_seasonality',
+        'weekly_seasonality'
+    ]
     
     # Use a simplified validation approach for quick mode
     if quick_mode:
@@ -1604,9 +1617,10 @@ def export_prophet_forecast(model, forecast, df, output_dir):
         
         # Add any required regressors
         for regressor in model.extra_regressors:
-            # Set reasonable default values
-            if regressor == 'busy_season_flag':
-                future[regressor] = 1 if next_day.month >= 4 and next_day.month <= 7 else 0
+            if regressor == 'april_peak_flag':
+                future[regressor] = 1 if next_day.month == 4 else 0
+            elif regressor == 'november_peak_flag':
+                future[regressor] = 1 if (next_day.month == 11 and next_day.day <= 14) else 0
             elif regressor == 'nov_season_flag':
                 future[regressor] = 1 if ((next_day.year == 2024 and next_day.month == 4) or
                                           (next_day.year == 2025 and next_day.month == 5)) else 0
@@ -1616,6 +1630,9 @@ def export_prophet_forecast(model, forecast, df, output_dir):
                 future[regressor] = 0
         
         next_day_forecast = model.predict(future)
+        next_day_forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
+            next_day_forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
+        )
     
     # Prepare next day info
     next_day_df = pd.DataFrame({
@@ -1723,7 +1740,7 @@ def evaluate_prophet_model(model, prophet_df):
     logger = logging.getLogger(__name__)
     logger.info(
         "Evaluating Prophet model with 365‑day initial window, "
-        "30‑day period, 60‑day horizon"
+        "14‑day period, 14‑day horizon"
     )
 
     # ------------------------------------------------------------------
@@ -1731,9 +1748,9 @@ def evaluate_prophet_model(model, prophet_df):
     # ------------------------------------------------------------------
     df_cv = cross_validation(
         model,
-        initial='365 days',      # <- change is right here
-        period='30 days',
-        horizon='60 days',
+        initial='365 days',
+        period='14 days',
+        horizon='14 days',
         parallel="processes",
     )
 
@@ -1753,13 +1770,20 @@ def evaluate_prophet_model(model, prophet_df):
             .mean() * 100
         ) if nonzero.any() else float('nan')
 
-    logger.info(f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
-                f"MAPE {mape if mape==mape else 'N/A'}")
+    coverage = (
+        ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean() * 100
+        if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns) else float('nan')
+    )
+
+    logger.info(
+        f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | MAPE {mape if mape==mape else 'N/A'} | "
+        f"Coverage {coverage if coverage==coverage else 'N/A'}%"
+    )
 
         # ---------- NEW BLOCK ----------
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "MAPE"],
-        "value":  [mae,  rmse,  mape]
+        "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
+        "value":  [mae,  rmse,  mape, coverage]
     })
     # --------------------------------
 
@@ -1837,27 +1861,18 @@ def create_prophet_dashboard(model, forecast, df, output_dir):
     plt.savefig(output_dir / "day_of_week_pattern.png")
     plt.close()
     
-    # 6. Busy season comparison
-    # If we have the busy_season_flag regressor
-    if 'busy_season_flag' in forecast.columns:
-        busy_avg = forecast[forecast['busy_season_flag'] == 1]['yhat'].mean()
-        non_busy_avg = forecast[forecast['busy_season_flag'] == 0]['yhat'].mean()
-        
+    # 6. Seasonal peak comparison
+    if 'april_peak_flag' in forecast.columns and 'november_peak_flag' in forecast.columns:
+        april_avg = forecast[forecast['april_peak_flag'] == 1]['yhat'].mean()
+        nov_avg = forecast[forecast['november_peak_flag'] == 1]['yhat'].mean()
+
         plt.figure(figsize=(8, 5))
-        plt.bar(['Regular Season', 'Busy Season'], [non_busy_avg, busy_avg])
-        plt.title('Average Call Volume: Busy Season vs Regular Season')
+        plt.bar(['April Peak', 'Nov Peak'], [april_avg, nov_avg])
+        plt.title('Average Call Volume: Seasonal Peaks')
         plt.ylabel('Average Calls')
         plt.grid(axis='y', alpha=0.3)
-        
-        # Add percentage increase
-        pct_increase = ((busy_avg - non_busy_avg) / non_busy_avg) * 100
-        plt.annotate(f"+{pct_increase:.1f}%",
-                    xy=(1, busy_avg),
-                    xytext=(1, busy_avg + 5),
-                    ha='center',
-                    fontweight='bold')
-        
-        plt.savefig(output_dir / "busy_season_comparison.png")
+
+        plt.savefig(output_dir / "seasonal_peak_comparison.png")
         plt.close()
     
     logger.info(f"Dashboard created in {output_dir}")
