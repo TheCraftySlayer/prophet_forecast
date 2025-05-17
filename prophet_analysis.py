@@ -9,13 +9,19 @@ evaluates forecasting performance,
 generates diagnostic plots,
 analyzes press release and policy change impacts on call volumes,
 and exports call predictions for the upcoming business days to Excel.
+
+Example usage::
+
+    python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results \
+        --handle-outliers winsorize --use-transformation false --skip-feature-importance
 """
 import pandas as pd
 import numpy as np
-import itertools  # Add this to imports at the top
+import itertools
 from datetime import date, datetime
 import matplotlib.pyplot as plt
 import logging
+import argparse
 import sys
 import os
 from functools import lru_cache
@@ -29,7 +35,6 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from prophet import Prophet
 from prophet.diagnostics import cross_validation, performance_metrics
 from prophet.plot import plot_cross_validation_metric
-import logging
 
 # Handle seaborn import safely
 try:
@@ -1851,54 +1856,65 @@ def create_prophet_dashboard(model, forecast, df, output_dir):
     logger.info(f"Dashboard created in {output_dir}")
 
 
-def main():
+def main(argv=None):
     """Main entry point for the script"""
     logger = setup_logging()
     logger.info("Starting Prophet call volume forecasting script")
 
-    # Parse command line arguments
-    if len(sys.argv) < 4:
-        logger.error("Missing required arguments")
-        print(
-            "Usage: python prophet_analysis.py <call_data.xlsx> <visitor_data.xlsx> <chatbot_data.csv> [output_dir] [--handle-outliers METHOD] [--use-transformation BOOL] [--skip-feature-importance]"
-        )
-        print(
-            "       METHOD for handle-outliers can be 'winsorize', 'median_replace', or 'interpolate'"
-        )
-        print(
-            "       BOOL for use-transformation can be 'true' or 'false'"
-        )
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Run call volume forecasting using Prophet"
+    )
+    parser.add_argument(
+        "call_data",
+        type=Path,
+        help="CSV/Excel file containing call counts",
+    )
+    parser.add_argument(
+        "visitor_data",
+        type=Path,
+        help="CSV/Excel file containing visitor counts",
+    )
+    parser.add_argument(
+        "chatbot_data",
+        type=Path,
+        help="CSV file containing chatbot queries",
+    )
+    parser.add_argument(
+        "output_dir",
+        nargs="?",
+        default=Path("prophet_output"),
+        type=Path,
+        help="Directory to save results",
+    )
+    parser.add_argument(
+        "--handle-outliers",
+        dest="handle_outliers",
+        metavar="METHOD",
+        help="Method to handle outliers (winsorize, median_replace, interpolate)",
+    )
+    parser.add_argument(
+        "--use-transformation",
+        metavar="BOOL",
+        default="false",
+        help="Apply log transformation to target (true/false)",
+    )
+    parser.add_argument(
+        "--skip-feature-importance",
+        action="store_true",
+        help="Skip feature importance analysis",
+    )
 
-    call_path = Path(sys.argv[1])
-    visit_path = Path(sys.argv[2])
-    chat_path = Path(sys.argv[3])
+    args = parser.parse_args(argv)
 
-    output_dir = Path(sys.argv[4]) if len(sys.argv) > 4 else Path("prophet_output")
+    call_path = args.call_data
+    visit_path = args.visitor_data
+    chat_path = args.chatbot_data
+    output_dir = args.output_dir
     output_dir.mkdir(exist_ok=True)
 
-    # Parse optional arguments
-    handle_outliers_method = None
-    use_transformation = False  # Default to NOT using log transformation
-    skip_feature_importance = "--skip-feature-importance" in sys.argv
-
-    # Check for outlier handling parameter
-    if "--handle-outliers" in sys.argv:
-        outlier_idx = sys.argv.index("--handle-outliers")
-        if outlier_idx + 1 < len(
-                sys.argv) and not sys.argv[outlier_idx + 1].startswith("--"):
-            handle_outliers_method = sys.argv[outlier_idx + 1]
-            logger.info(
-                f"Outlier handling enabled with method: {handle_outliers_method}"
-            )
-
-    # Check for transformation parameter
-    if "--use-transformation" in sys.argv:
-        transform_idx = sys.argv.index("--use-transformation")
-        if transform_idx + \
-                1 < len(sys.argv) and not sys.argv[transform_idx + 1].startswith("--"):
-            use_transformation = sys.argv[transform_idx + 1].lower() == "true"
-            logger.info(f"Log transformation for target: {use_transformation}")
+    handle_outliers_method = args.handle_outliers
+    use_transformation = str(args.use_transformation).lower() == "true"
+    skip_feature_importance = args.skip_feature_importance
 
     # Check if files exist
     for p in [call_path, visit_path, chat_path]:
@@ -2084,12 +2100,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    # Check if we should run the full pipeline or just predict
-    if len(sys.argv) >= 4:
-        # Run the full pipeline
-        main()
-    else:
-        # Just predict using the saved model
-        model_path = Path("prophet_results/prophet_model.pkl")  # Adjust path as needed
-        predicted_calls, forecast = predict_next_day_calls(model_path)
-        print(f"Predicted calls for next business day: {predicted_calls}")
+    main()
