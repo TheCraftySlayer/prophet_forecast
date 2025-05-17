@@ -61,11 +61,14 @@ def tune_prophet_hyperparameters(prophet_df):
     logger = logging.getLogger(__name__)
     logger.info("Tuning Prophet hyperparameters")
     
-    # Simple parameter grid
+    # Expanded parameter grid for more thorough search
     param_grid = {
         'changepoint_prior_scale': [0.05, 0.1, 0.5],
         'seasonality_prior_scale': [1.0, 10.0, 20.0],
-        'holidays_prior_scale': [1.0, 10.0]
+        'holidays_prior_scale': [1.0, 10.0],
+        'seasonality_mode': ['multiplicative', 'additive'],
+        'n_changepoints': [25, 50],
+        'changepoint_range': [0.8, 0.9]
     }
     
     # Generate all combinations
@@ -87,8 +90,12 @@ def tune_prophet_hyperparameters(prophet_df):
             m = Prophet(
                 yearly_seasonality=True,
                 weekly_seasonality=True,
-                seasonality_mode='multiplicative',
-                **params
+                seasonality_mode=params.get('seasonality_mode', 'multiplicative'),
+                n_changepoints=params.get('n_changepoints', 25),
+                changepoint_range=params.get('changepoint_range', 0.8),
+                changepoint_prior_scale=params['changepoint_prior_scale'],
+                seasonality_prior_scale=params['seasonality_prior_scale'],
+                holidays_prior_scale=params['holidays_prior_scale']
             )
             
             # Fit on training data only
@@ -118,7 +125,14 @@ def tune_prophet_hyperparameters(prophet_df):
     # Find best parameters
     if not rmses or all(np.isinf(rmses)):
         logger.warning("All hyperparameter combinations failed, using defaults")
-        best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 10.0}
+        best_params = {
+            'changepoint_prior_scale': 0.05,
+            'seasonality_prior_scale': 10.0,
+            'holidays_prior_scale': 10.0,
+            'seasonality_mode': 'multiplicative',
+            'n_changepoints': 25,
+            'changepoint_range': 0.8
+        }
     else:
         best_params = all_params[np.argmin(rmses)]
     
@@ -307,6 +321,12 @@ def prepare_data(call_path,
     df["visit_std7"] = df["visit_count"].rolling(
         7, min_periods=1).std().fillna(0).astype(float)
     df["chatbot_ma3"] = df["chatbot_count"].rolling(3, min_periods=1).mean()
+
+    # Additional year-over-year and interaction features
+    logger.info("Creating year-over-year and interaction features")
+    df["call_yoy_diff"] = df["call_count"] - df["call_count"].shift(365).fillna(0)
+    df["visit_yoy_diff"] = df["visit_count"] - df["visit_count"].shift(365).fillna(0)
+    df["call_visit_interaction"] = df["call_count"] * df["visit_count"]
 
     # Continue with existing holiday and deadline flags, etc. (existing code)
     logger.info("Creating holiday and deadline flags")
@@ -583,7 +603,8 @@ def prepare_prophet_data(df):
     return prophet_df
 
 
-def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=30):
+def train_prophet_model(prophet_df, holidays_df, regressors_df,
+                        future_periods=30, params=None):
     """
     Train Prophet model with custom components
     
@@ -599,20 +620,26 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     logger = logging.getLogger(__name__)
     logger.info("Training Prophet model")
     
-    # Initialize Prophet model
+    # Initialize Prophet model with provided hyperparameters or defaults
+    params = params or {}
     model = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
-        daily_seasonality=False,  # Not needed as we capture day of week effects
-        seasonality_mode='multiplicative',  # Better for call volumes
-        changepoint_prior_scale=0.05,  # Allow moderate flexibility in trend
+        daily_seasonality=False,
+        seasonality_mode=params.get('seasonality_mode', 'multiplicative'),
+        changepoint_prior_scale=params.get('changepoint_prior_scale', 0.05),
+        seasonality_prior_scale=params.get('seasonality_prior_scale', 10.0),
+        holidays_prior_scale=params.get('holidays_prior_scale', 10.0),
+        n_changepoints=params.get('n_changepoints', 25),
+        changepoint_range=params.get('changepoint_range', 0.8),
         holidays=holidays_df
     )
     
     # Add key regressor variables
     important_regressors = [
         'busy_season_flag', 'nov_season_flag', 'mailout_flag',
-        'may_2025_policy_changes'
+        'may_2025_policy_changes',
+        'call_yoy_diff', 'visit_yoy_diff', 'call_visit_interaction'
     ]
     
     for regressor in important_regressors:
@@ -657,6 +684,21 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
                         # Only active in May 2025
                         year, month = ds.year, ds.month
                         future.loc[i, regressor] = 1 if year == 2025 and month == 5 else 0
+                    elif regressor in ['call_yoy_diff', 'visit_yoy_diff']:
+                        # Use value from same day last year if available
+                        past_date = ds - pd.Timedelta(days=365)
+                        if past_date in prophet_df['ds'].values:
+                            past_val = prophet_df.loc[prophet_df['ds'] == past_date, regressor].values[0]
+                            future.loc[i, regressor] = past_val
+                        else:
+                            future.loc[i, regressor] = 0
+                    elif regressor == 'call_visit_interaction':
+                        if ds in prophet_df['ds'].values:
+                            calls = prophet_df.loc[prophet_df['ds'] == ds, 'call_count'].values[0]
+                            visits = prophet_df.loc[prophet_df['ds'] == ds, 'visit_count'].values[0]
+                            future.loc[i, regressor] = calls * visits
+                        else:
+                            future.loc[i, regressor] = 0
                     else:
                         # Default to 0 for other regressors
                         future.loc[i, regressor] = 0
@@ -704,11 +746,13 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     # Add same regressors to all models
     important_regressors = [
         'busy_season_flag', 'nov_season_flag', 'mailout_flag',
-        'may_2025_policy_changes'
+        'may_2025_policy_changes',
+        'call_yoy_diff', 'visit_yoy_diff', 'call_visit_interaction'
     ]
     
     # Add regressors to each model and fit them
     forecasts = []
+    weights = []
     for i, model in enumerate(models):
         logger.info(f"Training ensemble model {i+1}/{len(models)}")
         model_prophet_df = prophet_df.copy()
@@ -755,6 +799,20 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                             # Only active in May 2025
                             year, month = ds.year, ds.month
                             future.loc[j, regressor] = 1 if year == 2025 and month == 5 else 0
+                        elif regressor in ['call_yoy_diff', 'visit_yoy_diff']:
+                            past_date = ds - pd.Timedelta(days=365)
+                            if past_date in model_prophet_df['ds'].values:
+                                past_val = model_prophet_df.loc[model_prophet_df['ds'] == past_date, regressor].values[0]
+                                future.loc[j, regressor] = past_val
+                            else:
+                                future.loc[j, regressor] = 0
+                        elif regressor == 'call_visit_interaction':
+                            if ds in model_prophet_df['ds'].values:
+                                calls = model_prophet_df.loc[model_prophet_df['ds'] == ds, 'call_count'].values[0]
+                                visits = model_prophet_df.loc[model_prophet_df['ds'] == ds, 'visit_count'].values[0]
+                                future.loc[j, regressor] = calls * visits
+                            else:
+                                future.loc[j, regressor] = 0
                         else:
                             # Default to 0 for other regressors
                             future.loc[j, regressor] = 0
@@ -768,21 +826,33 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         # Make the forecast
         forecast = model.predict(future)
         forecasts.append(forecast)
+
+        # Evaluate model performance using cross-validation for weighting
+        try:
+            _, _, summary = evaluate_prophet_model(model, model_prophet_df)
+            rmse_val = summary.loc[summary['metric'] == 'RMSE', 'value'].values[0]
+            weights.append(1.0 / (rmse_val + 1e-6))
+        except Exception as e:
+            logger.warning(f"Model {i+1} evaluation failed: {str(e)}")
+            weights.append(1.0)
     
     # Create ensemble forecast by averaging predictions
     logger.info("Creating ensemble forecast by averaging predictions")
     ensemble_forecast = forecasts[0].copy()
     
     # Safer method to calculate min/max without ambiguous Series truth value
-    ensemble_forecast['yhat'] = sum(f['yhat'] for f in forecasts) / len(forecasts)
+    if not any(weights):
+        weights = [1.0] * len(forecasts)
+    total_weight = sum(weights)
+    ensemble_forecast['yhat'] = sum(f['yhat'] * w for f, w in zip(forecasts, weights)) / total_weight
     
     # Calculate lower and upper bounds
-    lower_bounds = [f['yhat_lower'] for f in forecasts]
-    upper_bounds = [f['yhat_upper'] for f in forecasts]
+    lower_bounds = [f['yhat_lower'] * w for f, w in zip(forecasts, weights)]
+    upper_bounds = [f['yhat_upper'] * w for f, w in zip(forecasts, weights)]
     
     # For each row, get the minimum lower bound and maximum upper bound
-    ensemble_forecast['yhat_lower'] = pd.concat(lower_bounds, axis=1).min(axis=1)
-    ensemble_forecast['yhat_upper'] = pd.concat(upper_bounds, axis=1).max(axis=1)
+    ensemble_forecast['yhat_lower'] = pd.concat(lower_bounds, axis=1).sum(axis=1) / total_weight
+    ensemble_forecast['yhat_upper'] = pd.concat(upper_bounds, axis=1).sum(axis=1) / total_weight
     
     return ensemble_forecast, models
 
@@ -1639,13 +1709,18 @@ def evaluate_prophet_model(model, prophet_df):
             .mean() * 100
         ) if nonzero.any() else float('nan')
 
+    coverage = ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean()
+
+    naive_pred = df_cv['y'].shift(1).fillna(method='bfill')
+    naive_mae = mean_absolute_error(df_cv['y'], naive_pred)
+
     logger.info(f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
                 f"MAPE {mape if mape==mape else 'N/A'}")
 
         # ---------- NEW BLOCK ----------
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "MAPE"],
-        "value":  [mae,  rmse,  mape]
+        "metric": ["MAE", "RMSE", "MAPE", "Coverage", "Naive_MAE"],
+        "value":  [mae,  rmse,  mape, coverage, naive_mae]
     })
     # --------------------------------
 
@@ -1935,7 +2010,14 @@ def main(argv=None):
             best_params = tune_prophet_hyperparameters(prophet_df)
         except Exception as e:
             logger.warning(f"Hyperparameter tuning failed: {str(e)}. Using defaults.")
-            best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 10.0}
+            best_params = {
+                'changepoint_prior_scale': 0.05,
+                'seasonality_prior_scale': 10.0,
+                'holidays_prior_scale': 10.0,
+                'seasonality_mode': 'multiplicative',
+                'n_changepoints': 25,
+                'changepoint_range': 0.8
+            }
         
         # Create holidays DataFrame
         holiday_dates = [
@@ -1970,10 +2052,11 @@ def main(argv=None):
 
         # Train Prophet model
         model, forecast, future = train_prophet_model(
-            prophet_df, 
-            holidays_df, 
-            regressors, 
-            future_periods=30
+            prophet_df,
+            holidays_df,
+            regressors,
+            future_periods=30,
+            params=best_params
         )
         
         # Try to create ensemble model, but continue with single model if it fails
@@ -2041,44 +2124,17 @@ def main(argv=None):
             # Analyze press release impact
             press_release_impact = analyze_press_release_impact_prophet(forecast, output_dir)
             
-            # Instead of full cross-validation, use simplified evaluation
+            # Evaluate model using cross-validation
             try:
-                logger.info("Evaluating model with simplified approach")
-                # Split data for evaluation
-                train_size = int(len(prophet_df) * 0.8)
-                test_prophet_df = prophet_df.iloc[train_size:].copy()
-                test_dates = test_prophet_df['ds']
-                
-                # Get predictions for test period
-                test_forecast = forecast[forecast['ds'].isin(test_dates)]
-                
-                # Calculate error metrics
-                y_true = test_prophet_df['y'].values
-                y_pred = test_forecast['yhat'].values
-                
-                mae = mean_absolute_error(y_true, y_pred)
-                
-                try:
-                    # Newer scikit-learn versions
-                    rmse = mean_squared_error(y_true, y_pred, squared=False)
-                except TypeError:
-                    # Older scikit-learn versions
-                    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-                
-                # Calculate MAPE manually
-                nonzero = y_true != 0
-                mape = (np.abs(y_true[nonzero] - y_pred[nonzero]) / np.abs(y_true[nonzero])).mean() * 100
-                
-                # Create summary dataframe
-                perf_summary = pd.DataFrame({
-                    "metric": ["MAE", "RMSE", "MAPE"],
-                    "value": [mae, rmse, mape]
-                })
-                
-                # Save performance metrics
+                logger.info("Evaluating model with cross-validation")
+                _, _, perf_summary = evaluate_prophet_model(model, prophet_df)
                 perf_summary.to_csv(output_dir / "performance_metrics.csv", index=False)
-                logger.info(f"Model evaluation: MAE={mae:.2f}, RMSE={rmse:.2f}, MAPE={mape:.2f}%")
-                
+                logger.info(
+                    "Model evaluation: " + ", ".join(
+                        f"{row.metric}={row.value:.2f}" for row in perf_summary.itertuples()
+                    )
+                )
+
             except Exception as e:
                 logger.warning(f"Model evaluation failed: {str(e)}")
             
