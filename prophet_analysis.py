@@ -1595,6 +1595,12 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     if len(next_day_forecast) == 0:
         # If next day isn't in forecast, make a special prediction
         future = pd.DataFrame({'ds': [next_day]})
+        # Include cap and floor for logistic growth models
+        if hasattr(model, 'history'):
+            if 'cap' in model.history:
+                future['cap'] = model.history['cap'].max()
+            if 'floor' in model.history:
+                future['floor'] = model.history['floor'].min()
         
         # Add any required regressors
         for regressor in model.extra_regressors:
