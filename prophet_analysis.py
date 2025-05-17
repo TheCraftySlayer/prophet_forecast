@@ -482,39 +482,11 @@ def prepare_data(call_path,
 
     # Create regressors dataframe for Prophet
     regressors = df.copy()
-    df = add_enhanced_features(df)
 
     # Add day of week information for completeness
     regressors['day_of_week'] = regressors.index.dayofweek
-    
-    return df, regressors
 
-def add_enhanced_features(df):
-    """Add more sophisticated features to improve predictive power"""
-    
-    # 1. Rolling medians (less affected by outliers than means)
-    df['call_med7'] = df['call_count'].rolling(7, min_periods=1).median()
-    
-    # 2. Recent volatility features
-    df['call_volatility'] = df['call_count'].rolling(14, min_periods=3).std() / \
-                           df['call_count'].rolling(14, min_periods=3).mean()
-    
-    # 3. Weekly cycle progress - capture within-week patterns
-    df['day_of_week'] = df.index.dayofweek
-    
-    # 4. Ratio between channels - capture channel substitution
-    df['visit_call_ratio'] = df['visit_count'] / df['call_count'].replace(0, 0.1)
-    df['chat_call_ratio'] = df['chatbot_count'] / df['call_count'].replace(0, 0.1)
-    
-    # 5. Post-weekend effect (Monday often has special patterns)
-    df['post_weekend'] = (df.index.dayofweek == 0).astype(int)
-    
-    # 6. Day of month features (early/mid/late month have different patterns)
-    df['early_month'] = (df.index.day <= 10).astype(int)
-    df['mid_month'] = ((df.index.day > 10) & (df.index.day <= 20)).astype(int)
-    df['end_month'] = (df.index.day > 20).astype(int)
-    
-    return df
+    return df, regressors
 
 def create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates):
     """
