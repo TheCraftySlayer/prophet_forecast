@@ -199,19 +199,20 @@ def verify_date_formats(call_path, visit_path, chat_path):
         if 'date' not in df.columns:
             df.rename(columns={df.columns[0]: 'date'}, inplace=True)
 
-    print("Date format samples:")
-    print(f"Calls: {call_df['date'].iloc[0]}")
-    print(f"Visits: {visit_df['date'].iloc[0]}")
-    print(f"Queries: {chat_df['date'].iloc[0]}")
+    logger = logging.getLogger(__name__)
+    logger.info("Date format samples:")
+    logger.info(f"Calls: {call_df['date'].iloc[0]}")
+    logger.info(f"Visits: {visit_df['date'].iloc[0]}")
+    logger.info(f"Queries: {chat_df['date'].iloc[0]}")
 
     # Try parsing dates from each file
     for name, df in [("Calls", call_df), ("Visits", visit_df),
                      ("Queries", chat_df)]:
         try:
             dates = pd.to_datetime(df['date'], errors='raise')
-            print(f"{name}: Successfully parsed {len(dates)} dates")
+            logger.info(f"{name}: Successfully parsed {len(dates)} dates")
         except Exception as e:
-            print(f"{name}: Error parsing dates - {str(e)}")
+            logger.warning(f"{name}: Error parsing dates - {str(e)}")
 
 
 def build_flag_series(dates: pd.DatetimeIndex, dates_list: list) -> pd.Series:
@@ -1756,124 +1757,8 @@ def evaluate_prophet_model(model, prophet_df):
     })
     # --------------------------------
 
-    return df_cv, df_p, summary
 
-def predict_next_day_calls(model_path=None):
-    """
-    Predict call volume for the next business day with detailed diagnostics
-    """
-    logger = setup_logging()
-    # Option 1: Load pre-trained model if available
-    if model_path and Path(model_path).exists():
-        logger.info(f"Loading model from {model_path}")
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-    else:
-        logger.warning("No saved model found - training simple model from calls.csv")
-        try:
-            df = pd.read_csv('calls.csv', header=None, names=['date', 'call_count'])
-            prophet_df = pd.DataFrame({
-                'ds': pd.to_datetime(df['date']),
-                'y': df['call_count'].astype(float)
-            })
-            model = Prophet()
-            model.fit(prophet_df)
-        except Exception as e:
-            logger.error(f"Failed to train fallback model: {str(e)}")
-            raise
-    
-    # Get next business day
-    today = pd.Timestamp.today()
-    next_day = today + pd.Timedelta(days=1)
-    if next_day.weekday() >= 5:  # Weekend
-        next_day = next_day + pd.Timedelta(days=7 - next_day.weekday())
-    
-    logger.info(f"Predicting for {next_day.strftime('%A, %B %d, %Y')}")
-    
-    # Create future DataFrame
-    future = pd.DataFrame({'ds': [next_day]})
-    
-    # Check which regressors the model expects
-    if hasattr(model, 'extra_regressors'):
-        logger.info(f"Model has {len(model.extra_regressors)} regressors: {list(model.extra_regressors.keys())}")
-        
-        for regressor in model.extra_regressors:
-            # DEBUG: Print regression mode
-            if hasattr(model.extra_regressors[regressor], 'mode'):
-                logger.info(f"Regressor '{regressor}' mode: {model.extra_regressors[regressor].mode}")
-            
-            # Set regressor values with detailed logging
-            if regressor == 'busy_season_flag':
-                # April-July is busy season
-                value = 1 if (next_day.month >= 4 and next_day.month <= 7) else 0
-                future[regressor] = value
-                logger.info(f"Set {regressor} = {value} (month is {next_day.month})")
-                
-            elif regressor == 'nov_season_flag':
-                # April 2024 or May 2025 is NOV season
-                value = 1 if ((next_day.year == 2024 and next_day.month == 4) or
-                              (next_day.year == 2025 and next_day.month == 5)) else 0
-                future[regressor] = value
-                logger.info(f"Set {regressor} = {value}")
-                
-            elif regressor == 'may_2025_policy_changes':
-                # Only active in May 2025
-                value = 1 if (next_day.year == 2025 and next_day.month == 5) else 0
-                future[regressor] = value
-                logger.info(f"Set {regressor} = {value}")
-                
-            elif regressor == 'mailout_flag':
-                # Default to 0 unless specific date known
-                future[regressor] = 0
-                logger.info(f"Set {regressor} = 0 (default)")
-                
-            else:
-                # Default for any other regressors
-                future[regressor] = 0
-                logger.info(f"Set {regressor} = 0 (unknown regressor)")
-    
-    # Check if model uses log transformation
-    uses_log = hasattr(model, 'y_scale') and model.y_scale > 2
-    logger.info(f"Model uses log transform: {uses_log} (y_scale: {model.y_scale if hasattr(model, 'y_scale') else 'N/A'})")
-    
-    # Make prediction with detailed logging
-    logger.info("Making prediction...")
-    forecast = model.predict(future)
-    
-    # Print all forecast columns for debugging
-    logger.info(f"Forecast columns: {forecast.columns.tolist()}")
-    
-    # Check if weekend - predictions should be near zero
-    is_weekend = next_day.weekday() >= 5
-    if is_weekend:
-        logger.warning(f"Predicting for {next_day.strftime('%A')} (weekend) - expect near-zero calls")
-    
-    # Show raw prediction
-    raw_pred = forecast['yhat'].values[0]
-    logger.info(f"Raw prediction: {raw_pred}")
-    
-    # Apply back-transformation if model uses log transform
-    if uses_log:
-        # Back-transform all prediction columns
-        forecast['yhat'] = np.expm1(forecast['yhat'])
-        forecast['yhat_lower'] = np.expm1(forecast['yhat_lower'])
-        forecast['yhat_upper'] = np.expm1(forecast['yhat_upper'])
-        pred = forecast['yhat'].values[0]  # Now use the back-transformed value
-        logger.info(f"Back-transformed from log: {pred}")
-    else:
-        pred = raw_pred
-    
-    # Debug component contributions
-    for col in forecast.columns:
-        if col not in ['ds', 'yhat', 'yhat_lower', 'yhat_upper', 'trend', 'trend_lower', 'trend_upper']:
-            if col in forecast.columns:
-                logger.info(f"Component {col}: {forecast[col].values[0]}")
-    
-    # Final prediction with rounding
-    final_pred = max(0, round(pred))  # Ensure non-negative
-    logger.info(f"Final prediction: {final_pred} calls")
-    
-    return final_pred, forecast
+    return df_cv, df_p, summary
 
 
 def create_prophet_dashboard(model, forecast, df, output_dir):
@@ -2063,22 +1948,87 @@ def main(argv=None):
         holiday_dates = [
             date(2023, 1, 2),
             date(2023, 1, 16),
-            # Keep all dates as in original code
-            # ...
+            date(2023, 4, 7),
+            date(2023, 5, 29),
+            date(2023, 6, 19),
+            date(2023, 7, 4),
+            date(2023, 9, 4),
+            date(2023, 11, 10),
+            date(2023, 11, 23),
+            date(2023, 11, 24),
+            date(2023, 12, 25),
+            date(2023, 12, 26),
+            date(2024, 1, 1),
+            date(2024, 1, 15),
+            date(2024, 3, 29),
+            date(2024, 5, 27),
+            date(2024, 6, 19),
+            date(2024, 7, 4),
+            date(2024, 10, 14),
+            date(2024, 11, 11),
+            date(2024, 11, 28),
+            date(2024, 11, 29),
+            date(2024, 12, 24),
+            date(2024, 12, 25),
+            date(2025, 1, 1),
+            date(2025, 1, 20),
+            date(2025, 4, 18),
+            date(2025, 5, 26),
+            date(2025, 6, 19),
+            date(2025, 7, 4),
+            date(2025, 9, 1),
+            date(2025, 10, 13),
+            date(2025, 11, 11),
+            date(2025, 11, 27),
+            date(2025, 11, 28),
+            date(2025, 12, 24),
             date(2025, 12, 25)
         ]
-        
+
         deadline_dates = [
             date(2023, 9, 1),
-            # Keep all dates as in original code
-            # ...
+            date(2023, 9, 6),
+            date(2023, 10, 1),
+            date(2023, 11, 1),
+            date(2023, 12, 1),
+            date(2024, 2, 28),
+            date(2024, 4, 1),
+            date(2024, 4, 30),
+            date(2024, 6, 1),
+            date(2024, 6, 15),
+            date(2024, 6, 30),
+            date(2024, 8, 1),
+            date(2024, 9, 1),
+            date(2024, 9, 6),
+            date(2024, 10, 1),
+            date(2024, 11, 1),
+            date(2024, 12, 1),
+            date(2025, 2, 28),
+            date(2025, 4, 1),
+            date(2025, 4, 30),
+            date(2025, 6, 1),
+            date(2025, 6, 15),
+            date(2025, 6, 30),
+            date(2025, 8, 1),
+            date(2025, 9, 1),
+            date(2025, 9, 6),
+            date(2025, 10, 1),
+            date(2025, 11, 1),
             date(2025, 12, 1)
         ]
-        
+
         press_release_dates = [
             date(2025, 1, 9),
-            # Keep all dates as in original code
-            # ...
+            date(2025, 2, 4),
+            date(2025, 2, 24),
+            date(2025, 3, 28),
+            date(2025, 4, 1),
+            date(2025, 4, 3),
+            date(2025, 4, 23),
+            date(2025, 4, 30),
+            date(2025, 5, 1),
+            date(2025, 5, 5),
+            date(2025, 5, 9),
             date(2025, 5, 13)
         ]
         
