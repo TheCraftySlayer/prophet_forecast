@@ -1627,12 +1627,7 @@ def export_prophet_forecast(model, forecast, df, output_dir):
 
 
 def evaluate_prophet_model(model, prophet_df):
-    """
-    Cross‑validate the Prophet model and report MAE, RMSE, and MAPE.
-    """
-    import logging
-    from prophet.diagnostics import cross_validation, performance_metrics
-    import numpy as np
+    """Cross‑validate the Prophet model and report MAE, RMSE, and MAPE."""
 
     logger = logging.getLogger(__name__)
     logger.info(
