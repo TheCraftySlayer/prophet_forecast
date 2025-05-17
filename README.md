@@ -43,4 +43,5 @@ python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results \
 
 The results, including forecasts and plots, will be saved in the specified output directory.
 The exported Excel report now includes predictions for the previous 14 business days
-along with a forecast for the next business day.
+along with a forecast for the next business day. A naive baseline forecast for the
+same 14-day window and corresponding MAE, RMSE, and MAPE metrics are also included.
