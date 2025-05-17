@@ -290,12 +290,18 @@ def prepare_data(call_path,
     logger.info(f"Creating unified date range from {start} to {end}")
     idx = pd.date_range(start=start, end=end, freq="D")
 
-    # Build main dataframe (existing code)
+    # Build main dataframe
+    # Do not fill missing call data with zeros to avoid distorting
+    # weekly seasonality.  Missing weekend values will remain NaN and
+    # those rows will be dropped before training.
     df = pd.DataFrame({
-        "call_count": calls.reindex(idx, fill_value=0),
+        "call_count": calls.reindex(idx),
         "visit_count": visits.reindex(idx, fill_value=0),
         "chatbot_count": chat.reindex(idx, fill_value=0)
     }, index=idx)
+
+    # Drop rows where call data is missing (typically weekends)
+    df = df.dropna(subset=["call_count"])
 
     df['call_count'] = df['call_count'].astype(float)
 
@@ -618,17 +624,23 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     logger.info("Training Prophet model")
     
     # Initialize Prophet model with optional tuned parameters
+    max_calls = prophet_df['y'].max()
+
     default_params = {
         'yearly_seasonality': True,
         'weekly_seasonality': True,
         'daily_seasonality': False,  # Not needed as we capture day of week effects
         'seasonality_mode': 'multiplicative',  # Better for call volumes
         'changepoint_prior_scale': 0.05,  # Allow moderate flexibility in trend
-        'holidays': holidays_df
+        'holidays': holidays_df,
+        'growth': 'logistic'
     }
 
     if model_params:
         default_params.update(model_params)
+
+    prophet_df['cap'] = max_calls * 1.1
+    prophet_df['floor'] = 0
 
     model = Prophet(**default_params)
     
@@ -652,6 +664,8 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods)
+    future['cap'] = max_calls * 1.1
+    future['floor'] = 0
     
     # Add regressor values to future DataFrame
     for regressor in important_regressors:
