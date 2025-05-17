@@ -1488,8 +1488,56 @@ def analyze_press_release_impact_prophet(forecast, output_dir):
     
     # Save press release effects
     press_releases.to_csv(output_dir / "press_release_effects.csv", index=False)
-    
+
     return press_releases
+
+
+def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Generate a naive forecast for the last 14 days and metrics.
+
+    The naive approach simply uses the previous day's call count as the
+    prediction for the current day. This mirrors the lightweight logic in
+    ``naive_forecast.py`` and avoids the need for additional packages.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Source data with a ``call_count`` column and a DatetimeIndex.
+
+    Returns
+    -------
+    Tuple of ``(forecast_df, metrics_df)`` where ``forecast_df`` contains the
+    date, predicted call count, actual call count and error columns. The
+    ``metrics_df`` provides MAE, RMSE and MAPE aggregated over the period.
+    """
+
+    df_sorted = df.sort_index()
+    recent = df_sorted["call_count"].iloc[-15:]
+    preds = recent.shift(1).dropna()
+    actual = recent.iloc[1:]
+    dates = actual.index
+
+    result = pd.DataFrame({
+        "date": dates,
+        "predicted": preds.values,
+        "actual": actual.values,
+    })
+    result["error"] = result["actual"] - result["predicted"]
+    result["abs_error"] = result["error"].abs()
+    result["pct_error"] = (
+        result["abs_error"] / result["actual"].replace(0, np.nan)
+    ) * 100
+
+    mae = result["abs_error"].mean()
+    rmse = np.sqrt((result["error"] ** 2).mean())
+    mape = result["pct_error"].mean()
+
+    metrics = pd.DataFrame({
+        "metric": ["MAE", "RMSE", "MAPE"],
+        "value": [mae, rmse, mape],
+    })
+
+    return result, metrics
 
 
 def export_prophet_forecast(model, forecast, df, output_dir):
@@ -1585,6 +1633,22 @@ def export_prophet_forecast(model, forecast, df, output_dir):
             'pct_error': recent_forecast['pct_error']
         })
         recent_performance.to_excel(writer, sheet_name='Recent 14-Day Performance', index=False)
+
+        # Metrics for Prophet predictions
+        prophet_metrics = pd.DataFrame({
+            'metric': ['MAE', 'RMSE', 'MAPE'],
+            'value': [
+                recent_performance['abs_error'].mean(),
+                np.sqrt((recent_performance['error'] ** 2).mean()),
+                recent_performance['pct_error'].mean()
+            ]
+        })
+        prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
+
+        # Naive baseline forecast and metrics
+        naive_df, naive_metrics = compute_naive_baseline(df)
+        naive_df.to_excel(writer, sheet_name='Naive 14-Day Forecast', index=False)
+        naive_metrics.to_excel(writer, sheet_name='Naive Metrics', index=False)
         
         # Next day forecast
         next_day_df.to_excel(writer, sheet_name='Next Day Forecast', index=False)
