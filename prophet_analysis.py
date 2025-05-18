@@ -519,7 +519,6 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         'n_changepoints': 25,
         'changepoint_prior_scale': 0.1,
         'seasonality_prior_scale': 0.05,
-        'multiplicative_terms_prior_scale': 0.05,
         'holidays_prior_scale': 20,
         'holidays': holidays_df,
         'mcmc_samples': 0,
