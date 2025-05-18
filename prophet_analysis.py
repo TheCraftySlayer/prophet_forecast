@@ -180,8 +180,27 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
 
     elif file_ext.endswith('.xlsx') or file_ext.endswith('.xls'):
         # Handle Excel files with explicit engine
-        xls = pd.ExcelFile(path, engine='openpyxl')
-        # ... rest of Excel handling code ...
+        df = pd.read_excel(path, engine='openpyxl')
+
+        if 'date' not in df.columns:
+            df = pd.read_excel(path, header=None, engine='openpyxl')
+            cols = list(df.columns)
+            if len(cols) >= 2:
+                df.columns = ['date', 'value'] + cols[2:]
+            else:
+                df.columns = ['date', 'value']
+
+        date_col = 'date'
+
+        if metric == 'call':
+            value_col_options = ['Count of Calls', 'call_count', 'value']
+        elif metric == 'visit':
+            value_col_options = ['Visits', 'visit_count', 'value']
+        else:
+            value_col_options = ['query_count', 'value']
+
+        value_col = next((c for c in df.columns if c in value_col_options or
+                          metric.lower() in c.lower()), df.columns[1])
     else:
         raise ValueError(f"Unsupported file format: {path}")
 
@@ -373,15 +392,16 @@ def prepare_data(call_path,
     # Add day of week information for completeness
     regressors["day_of_week"] = regressors.index.dayofweek
 
-    # Standardize numeric regressors (z-score)
-    for col in regressors.columns:
-        if col == "call_count":
-            continue
-        if np.issubdtype(regressors[col].dtype, np.number):
-            mean = regressors[col].mean()
-            std = regressors[col].std()
-            if std != 0:
-                regressors[col] = (regressors[col] - mean) / std
+    if scale_features:
+        # Standardize numeric regressors (z-score)
+        for col in regressors.columns:
+            if col == "call_count":
+                continue
+            if np.issubdtype(regressors[col].dtype, np.number):
+                mean = regressors[col].mean()
+                std = regressors[col].std()
+                if std != 0:
+                    regressors[col] = (regressors[col] - mean) / std
 
     return df, regressors
 
@@ -1600,20 +1620,27 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     return output_file
 
 
-def evaluate_prophet_model(model, prophet_df):
+def evaluate_prophet_model(model, prophet_df, cv_params=None):
     """Cross‑validate the Prophet model and report MAE, RMSE, and MAPE."""
+
+    if cv_params is None:
+        cv_params = {}
+
+    initial = cv_params.get('initial', '180 days')
+    period = cv_params.get('period', '30 days')
+    horizon = cv_params.get('horizon', '60 days')
 
     logger = logging.getLogger(__name__)
     logger.info(
-        "Evaluating Prophet model with 180-day initial window, "
-        "30-day period, 60-day horizon"
+        f"Evaluating Prophet model with {initial} initial window, "
+        f"{period} period, {horizon} horizon"
     )
 
     df_cv = cross_validation(
         model,
-        initial='180 days',
-        period='30 days',
-        horizon='60 days',
+        initial=initial,
+        period=period,
+        horizon=horizon,
         parallel="processes",
     )
 

@@ -65,7 +65,12 @@ def pipeline(config_path: Path):
         model_params=model_params,
     )
 
-    df_cv, horizon_table, summary, diag = evaluate_prophet_model(model, prophet_df)
+    cv_params = cfg.get('cross_validation', {})
+    df_cv, horizon_table, summary, diag = evaluate_prophet_model(
+        model,
+        prophet_df,
+        cv_params=cv_params,
+    )
     summary.to_csv(out_dir / "summary.csv", index=False)
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
