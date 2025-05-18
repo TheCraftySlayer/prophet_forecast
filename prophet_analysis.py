@@ -76,7 +76,7 @@ def tune_prophet_hyperparameters(prophet_df):
     
     # Expanded parameter grid for broader search
     param_grid = {
-        'changepoint_prior_scale': [0.01, 0.05, 0.1, 0.5],
+        'changepoint_prior_scale': [1.5, 2.0, 3.0],
         'seasonality_prior_scale': [1.0, 10.0, 20.0, 30.0],
         'holidays_prior_scale': [1.0, 5.0, 10.0]
     }
@@ -528,7 +528,8 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         'daily_seasonality': False,
         'seasonality_mode': 'multiplicative',
         'n_changepoints': 25,
-        'changepoint_prior_scale': 0.1,
+        'changepoint_prior_scale': 1.5,
+        'changepoints': [pd.Timestamp('2025-05-01')],
         'seasonality_prior_scale': 0.05,
         'holidays_prior_scale': 20,
         'holidays': holidays_df,
@@ -558,8 +559,10 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
             prophet_df[regressor] = regressors_df[regressor].values
-        # Use additive mode to avoid multiplicative variance spikes
-        model.add_regressor(regressor, mode='additive')
+        if regressor == 'post_policy':
+            model.add_regressor(regressor, mode='additive', prior_scale=10)
+        else:
+            model.add_regressor(regressor, mode='additive')
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -635,7 +638,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         yearly_seasonality=True,
         weekly_seasonality=True,
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05
+        changepoint_prior_scale=1.5
     )
     
     # More flexible model
@@ -643,7 +646,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         yearly_seasonality=True,
         weekly_seasonality=True,
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.5
+        changepoint_prior_scale=2.0
     )
     
     # More rigid model
@@ -651,7 +654,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         yearly_seasonality=True,
         weekly_seasonality=True,
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.01
+        changepoint_prior_scale=3.0
     )
     
     models = [model1, model2, model3]
