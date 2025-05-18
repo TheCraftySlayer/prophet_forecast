@@ -100,7 +100,8 @@ def tune_prophet_hyperparameters(prophet_df):
             m = Prophet(
                 yearly_seasonality=True,
                 weekly_seasonality=True,
-                seasonality_mode='multiplicative',
+                daily_seasonality=False,
+                seasonality_mode='additive',
                 **params
             )
             
@@ -526,10 +527,10 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     max_calls = prophet_df['y'].max()
 
     default_params = {
-        'yearly_seasonality': False,
-        'weekly_seasonality': False,
+        'yearly_seasonality': True,
+        'weekly_seasonality': True,
         'daily_seasonality': False,
-        'seasonality_mode': 'multiplicative',
+        'seasonality_mode': 'additive',
         'n_changepoints': 25,
         'changepoint_prior_scale': 1.5,
         'changepoints': [pd.Timestamp('2025-05-01')],
@@ -548,7 +549,7 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     prophet_df['floor'] = 0
 
     model = Prophet(**default_params)
-    model.add_seasonality('yearly', period=365.25, fourier_order=8, mode='multiplicative', prior_scale=0.05)
+    model.add_seasonality('yearly', period=365.25, fourier_order=8, mode='additive', prior_scale=0.05)
     
 
     # Restrict regressors to mitigate collinearity
@@ -651,7 +652,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     model1 = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
-        seasonality_mode='multiplicative',
+        daily_seasonality=False,
+        seasonality_mode='additive',
         changepoint_prior_scale=1.5
     )
     
@@ -659,7 +661,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     model2 = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
-        seasonality_mode='multiplicative',
+        daily_seasonality=False,
+        seasonality_mode='additive',
         changepoint_prior_scale=2.0
     )
     
@@ -667,7 +670,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     model3 = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
-        seasonality_mode='multiplicative',
+        daily_seasonality=False,
+        seasonality_mode='additive',
         changepoint_prior_scale=3.0
     )
     
@@ -1027,7 +1031,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         model_copy = Prophet(
             yearly_seasonality=True,
             weekly_seasonality=True,
-            seasonality_mode='multiplicative',
+            daily_seasonality=False,
+            seasonality_mode='additive',
             changepoint_prior_scale=model.changepoint_prior_scale
         )
         
@@ -1077,7 +1082,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 test_model = Prophet(
                     yearly_seasonality=True,
                     weekly_seasonality=True,
-                    seasonality_mode='multiplicative',
+                    daily_seasonality=False,
+                    seasonality_mode='additive',
                     changepoint_prior_scale=model.changepoint_prior_scale
                 )
                 
@@ -1124,7 +1130,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 test_model = Prophet(
                     yearly_seasonality=(feature != 'yearly_seasonality'),
                     weekly_seasonality=(feature != 'weekly_seasonality'),
-                    seasonality_mode='multiplicative',
+                    daily_seasonality=False,
+                    seasonality_mode='additive',
                     changepoint_prior_scale=model.changepoint_prior_scale
                 )
                 
