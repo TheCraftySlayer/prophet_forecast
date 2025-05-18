@@ -16,11 +16,17 @@ with open('calls.csv') as f:
         if not row:
             continue
         date_str, value_str = row
-        try:
-            date = datetime.strptime(date_str.strip(), '%m/%d/%Y')
-        except ValueError:
+        parsed = None
+        for fmt in ("%m/%d/%Y", "%m/%d/%y"):
+            try:
+                parsed = datetime.strptime(date_str.strip(), fmt)
+                break
+            except ValueError:
+                continue
+        if not parsed:
             # skip header or malformed lines
             continue
+        date = parsed
         rows.append((date.strftime('%Y-%m-%d'), float(value_str)))
 
 # Ensure data is sorted by date
