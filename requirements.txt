@@ -6,3 +6,6 @@ seaborn
 scikit-learn
 prophet
 openpyxl
+
+ruamel.yaml
+statsmodels
