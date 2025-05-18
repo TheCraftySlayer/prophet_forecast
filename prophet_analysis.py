@@ -236,13 +236,16 @@ def verify_date_formats(call_path, visit_path, chat_path):
 
     logger = logging.getLogger(__name__)
     logger.info("Date format samples:")
-    logger.info(f"Calls: {call_df['date'].iloc[0]}")
-    logger.info(f"Visits: {visit_df['date'].iloc[0]}")
-    logger.info(f"Queries: {chat_df['date'].iloc[0]}")
+    for name, df in [("Calls", call_df), ("Visits", visit_df), ("Queries", chat_df)]:
+        if df.empty:
+            logger.warning(f"{name}: file is empty")
+        else:
+            logger.info(f"{name}: {df['date'].iloc[0]}")
 
     # Try parsing dates from each file
-    for name, df in [("Calls", call_df), ("Visits", visit_df),
-                     ("Queries", chat_df)]:
+    for name, df in [("Calls", call_df), ("Visits", visit_df), ("Queries", chat_df)]:
+        if df.empty:
+            continue
         try:
             dates = pd.to_datetime(df['date'], errors='raise')
             logger.info(f"{name}: Successfully parsed {len(dates)} dates")
@@ -1294,15 +1297,23 @@ def analyze_policy_changes_prophet(df, forecast, output_dir):
     plt.close()
     
     # Create counterfactual analysis for May 2025 without policy changes
-    # This requires modifying the forecast to remove policy effect
-    
-    # Find May 2025 forecasts
+    # If the forecast includes the post_policy component, remove it
     may_2025_forecast = forecast[
-        (forecast['ds'].dt.year == 2025) & 
+        (forecast['ds'].dt.year == 2025) &
         (forecast['ds'].dt.month == 5)
     ].copy()
-    
-    
+
+    if not may_2025_forecast.empty and 'post_policy' in may_2025_forecast.columns:
+        may_2025_forecast['no_policy'] = (
+            may_2025_forecast['yhat'] - may_2025_forecast['post_policy']
+        )
+        cf_df = pd.DataFrame({
+            'total_with_policy': [may_2025_forecast['yhat'].sum()],
+            'total_without_policy': [may_2025_forecast['no_policy'].sum()],
+            'estimated_policy_effect': [may_2025_forecast['post_policy'].sum()]
+        })
+        cf_df.to_csv(output_dir / 'policy_counterfactual.csv', index=False)
+
     return summary
 
 
