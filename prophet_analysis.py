@@ -1,4 +1,4 @@
-﻿"""
+"""
 Prophet Forecast Analysis Script
 
 This script loads customer service call, visitor, and chatbot query time series data,
@@ -306,14 +306,14 @@ def prepare_data(call_path,
 
     df['call_count'] = df['call_count'].astype(float)
 
-    # Define 2025 NOV season mask (missing from original code)
-    nov_start_2025 = pd.Timestamp(2025, 5, 1)
-    nov_end_2025 = pd.Timestamp(2025, 5, 31)
-    nov_mask_2025 = (df.index >= nov_start_2025) & (df.index <= nov_end_2025)
+    # Define 2025 May season mask
+    may_start_2025 = pd.Timestamp(2025, 5, 1)
+    may_end_2025 = pd.Timestamp(2025, 5, 31)
+    may_mask_2025 = (df.index >= may_start_2025) & (df.index <= may_end_2025)
 
     # Create may_2025_policy_changes flag
     df["may_2025_policy_changes"] = 0
-    df.loc[nov_mask_2025, "may_2025_policy_changes"] = 1
+    df.loc[may_mask_2025, "may_2025_policy_changes"] = 1
 
     # Feature engineering: lags and rolling stats for potential use as regressors
     logger.info("Creating lag and rolling features")
@@ -444,8 +444,8 @@ def prepare_data(call_path,
     nov_mask_2024 = (df.index >= nov_start_2024) & (df.index <= nov_end_2024)
     df.loc[nov_mask_2024, "nov_season_flag"] = 1
 
-    # Update 2025 NOV season to full May
-    df.loc[nov_mask_2025, "nov_season_flag"] = 1
+    # Update 2025 season to full May
+    df.loc[may_mask_2025, "nov_season_flag"] = 1
 
     # ------------------------------------------------------------------
     # Separate seasonal peak flags for April and November
@@ -945,7 +945,7 @@ def handle_outliers_prophet(df, outlier_df, method='winsorize'):
                     elif actual > upper:
                         df_cleaned.loc[date, 'call_count'] = upper
     
-    elif method == 'median_replace':
+    elif method == 'prediction_replace':
         # Replace with predictions
         for date in outlier_dates:
             if date in df_cleaned.index:
@@ -1912,7 +1912,7 @@ def main(argv=None):
         "--handle-outliers",
         dest="handle_outliers",
         metavar="METHOD",
-        help="Method to handle outliers (winsorize, median_replace, interpolate)",
+        help="Method to handle outliers (winsorize, prediction_replace, interpolate)",
     )
     parser.add_argument(
         "--use-transformation",

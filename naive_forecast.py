@@ -43,9 +43,11 @@ for i in range(1, len(recent)):
 n = len(preds)
 mae = sum(abs(a - p) for a, p in zip(acts, preds)) / n
 rmse = sqrt(sum((a - p) ** 2 for a, p in zip(acts, preds)) / n)
-mape = (
-    sum(abs(a - p) / a for a, p in zip(acts, preds) if a != 0) / n * 100
-)
+non_zero = [(a, p) for a, p in zip(acts, preds) if a != 0]
+if non_zero:
+    mape = sum(abs(a - p) / a for a, p in non_zero) / len(non_zero) * 100
+else:
+    mape = float('nan')
 
 print("date,predicted,actual")
 for d, p, a in zip(dates, preds, acts):
