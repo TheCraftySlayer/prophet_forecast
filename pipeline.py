@@ -8,6 +8,7 @@ from prophet_analysis import (
     tune_prophet_hyperparameters,
     create_prophet_holidays,
     export_prophet_forecast,
+    export_baseline_forecast,
 )
 from datetime import date, datetime
 import pandas as pd
@@ -75,6 +76,7 @@ def pipeline(config_path: Path):
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
     export_prophet_forecast(model, forecast, df, out_dir)
+    export_baseline_forecast(df, out_dir)
 
 
 if __name__ == "__main__":
