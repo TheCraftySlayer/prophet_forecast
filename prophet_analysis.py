@@ -574,6 +574,7 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     future['cap'] = max_calls * 1.1
     future['floor'] = 0
 
+    # Create an empty regressor frame indexed by the forecast dates
     future_regs = pd.DataFrame(index=future['ds'])
 
     # Required regressors only
@@ -588,7 +589,8 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
             mask = known[col].notna()
             future_regs.loc[mask, col] = known.loc[mask, col]
 
-    future = pd.concat([future, future_regs.reset_index(drop=True)], axis=1)
+    # Merge regressor values back into the future dataframe on the date column
+    future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
     
     # Make forecast
     logger.info("Making forecast")
