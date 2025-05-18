@@ -4,19 +4,21 @@ This project forecasts customer service call volume using [Prophet](https://gith
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.10+ (tested with Python 3.13)
 - pandas
 - numpy
 - matplotlib
 - seaborn (optional for some visualizations)
 - scikit-learn
-- prophet
+- prophet>=1.1.5
 - openpyxl
+- ruamel.yaml>=0.17.32
 
 Install dependencies with:
 
 ```bash
-pip install pandas numpy matplotlib seaborn scikit-learn prophet openpyxl
+pip install pandas numpy matplotlib seaborn scikit-learn \
+    prophet>=1.1.5 openpyxl ruamel.yaml>=0.17.32
 ```
 
 ## Usage
