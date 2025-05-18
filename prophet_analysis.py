@@ -1707,7 +1707,6 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None):
     ac_flag = (lb['lb_pvalue'] < 0.05) | (lb['lb_stat'] > 0.2)
     autocorr_flag = bool(ac_flag.any())
 
-        # ---------- NEW BLOCK ----------
     summary = pd.DataFrame({
         "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
         "value":  [mae,  rmse,  mape, coverage]

@@ -10,7 +10,7 @@ from prophet_analysis import (
     export_prophet_forecast,
     export_baseline_forecast,
 )
-from datetime import date, datetime
+from datetime import datetime
 import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar
 import logging
