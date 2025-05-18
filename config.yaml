@@ -5,7 +5,7 @@ data:
 output: prophet_output
 model:
   seasonality_mode: multiplicative
-  seasonality_prior_scale: 0.05
+  seasonality_prior_scale: 0.02
   holidays_prior_scale: 20
   changepoint_prior_scale: 0.1
   mcmc_samples: 0

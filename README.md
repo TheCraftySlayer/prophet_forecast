@@ -47,3 +47,9 @@ The results, including forecasts and plots, will be saved in the specified outpu
 The exported Excel report now includes predictions for the previous 14 business days
 along with a forecast for the next business day. A naive baseline forecast for the
 same 14-day window and corresponding MAE, RMSE, and MAPE metrics are also included.
+
+### Data handling
+
+Days with more than **865** calls are capped prior to modeling to guard against
+extreme variance. When the Prophet model is configured with logistic growth,
+capacity columns (`cap` and `floor`) are automatically added to enforce this cap.

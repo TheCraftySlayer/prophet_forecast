@@ -77,7 +77,7 @@ def tune_prophet_hyperparameters(prophet_df):
     # Expanded parameter grid for broader search
     param_grid = {
         'changepoint_prior_scale': [0.01, 0.05, 0.1, 0.5],
-        'seasonality_prior_scale': [1.0, 10.0, 20.0, 30.0],
+        'seasonality_prior_scale': [0.05, 0.1, 0.5, 1.0],
         'holidays_prior_scale': [1.0, 5.0, 10.0]
     }
     
@@ -131,7 +131,7 @@ def tune_prophet_hyperparameters(prophet_df):
     # Find best parameters
     if not rmses or all(np.isinf(rmses)):
         logger.warning("All hyperparameter combinations failed, using defaults")
-        best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 10.0}
+        best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 0.5, 'holidays_prior_scale': 10.0}
     else:
         best_params = all_params[np.argmin(rmses)]
     
@@ -347,6 +347,14 @@ def prepare_data(call_path,
         monday_spike = weekday_means.get(0, 0) - weekday_means.drop(0).mean()
         logger.info(f"Monday spike magnitude: {monday_spike:.1f}")
 
+    # Cap extremely high call days before outlier detection
+    cap_threshold = 865
+    high_calls = df['call_count'] > cap_threshold
+    if high_calls.any():
+        logger.info(
+            f"Capping {high_calls.sum()} days above {cap_threshold}")
+        df.loc[high_calls, 'call_count'] = cap_threshold
+
     # Flag events before outlier handling
     deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq='MS')
     df['holiday_flag'] = np.where(df.index.isin(holiday_dates), -1, 0)
@@ -518,7 +526,7 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         'seasonality_mode': 'multiplicative',
         'n_changepoints': 25,
         'changepoint_prior_scale': 0.1,
-        'seasonality_prior_scale': 0.05,
+        'seasonality_prior_scale': 0.02,
         'holidays_prior_scale': 20,
         'holidays': holidays_df,
         'mcmc_samples': 0,
@@ -529,8 +537,10 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         default_params.update(model_params)
 
 
-    prophet_df['cap'] = max_calls * 1.1
-    prophet_df['floor'] = 0
+    use_logistic = default_params.get('growth') == 'logistic'
+    if use_logistic:
+        prophet_df['cap'] = max_calls * 1.1
+        prophet_df['floor'] = 0
 
     model = Prophet(**default_params)
     model.add_seasonality('weekly', period=7, fourier_order=6, mode='additive', prior_scale=0.1)
@@ -558,8 +568,9 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods)
-    future['cap'] = max_calls * 1.1
-    future['floor'] = 0
+    if use_logistic:
+        future['cap'] = max_calls * 1.1
+        future['floor'] = 0
     
     # Add regressor values to future DataFrame
     for regressor in important_regressors:
@@ -1835,7 +1846,7 @@ def main(argv=None):
             best_params = tune_prophet_hyperparameters(prophet_df)
         except Exception as e:
             logger.warning(f"Hyperparameter tuning failed: {str(e)}. Using defaults.")
-            best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 10.0}
+            best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 0.5, 'holidays_prior_scale': 10.0}
         
         # Create holidays DataFrame
         holiday_dates = [
