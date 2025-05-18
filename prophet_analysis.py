@@ -546,29 +546,20 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     model = Prophet(**default_params)
     model.add_seasonality('yearly', period=365.25, fourier_order=8, mode='multiplicative', prior_scale=0.05)
     
-    # Add weekly dummy regressors
-    dow_cols = []
-    for dow in sorted(prophet_df['ds'].dt.dayofweek.unique()):
-        col = f'dow_{dow}'
-        prophet_df[col] = (prophet_df['ds'].dt.dayofweek == dow).astype(int)
-        dow_cols.append(col)
 
-    # Add key regressor variables
+    # Restrict regressors to mitigate collinearity
+    # Only use visitors, queries and one policy indicator
     important_regressors = [
-        'holiday_flag',
-        'deadline_flag',
-        'post_policy',
         'visit_log1p',
         'chatbot_log1p',
-        'visit_weekday_interaction',
-    ] + dow_cols
+        'post_policy',
+    ]
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
             prophet_df[regressor] = regressors_df[regressor].values
-        mode = ('additive' if regressor.endswith('_flag') or regressor.startswith('dow_')
-                or regressor == 'post_policy' else 'multiplicative')
-        model.add_regressor(regressor, mode=mode)
+        # Use additive mode to avoid multiplicative variance spikes
+        model.add_regressor(regressor, mode='additive')
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -582,22 +573,10 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
 
     future_regs = pd.DataFrame(index=future['ds'])
 
-    # Weekly dummies
-    for col in dow_cols:
-        d = int(col.split('_')[1])
-        future_regs[col] = (future['ds'].dt.dayofweek == d).astype(int)
-
-    # Flags and other regressors
-    future_regs['holiday_flag'] = future['ds'].isin(
-        holidays_df[holidays_df['holiday'] == 'holiday']['ds']
-    ).astype(int)
-    future_regs['deadline_flag'] = future['ds'].isin(
-        holidays_df[holidays_df['holiday'] == 'deadline']['ds']
-    ).astype(int)
+    # Required regressors only
     future_regs['post_policy'] = (future['ds'] >= pd.Timestamp('2025-05-01')).astype(int)
     future_regs['visit_log1p'] = np.log1p(0)
     future_regs['chatbot_log1p'] = np.log1p(0)
-    future_regs['visit_weekday_interaction'] = future_regs['visit_log1p'] * (future['ds'].dt.dayofweek < 5).astype(int)
 
     # Overlay known regressor values from historical data
     known = regressors_df.reindex(future['ds'])
@@ -678,11 +657,11 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     models = [model1, model2, model3]
     
     # Add same regressors to all models
+    # Use the reduced regressor set to avoid collinearity
     important_regressors = [
-        'holiday_flag',
-        'deadline_flag',
-        'visit_count',
-        'chatbot_count'
+        'visit_log1p',
+        'chatbot_log1p',
+        'post_policy'
     ]
     
     # Add regressors to each model and fit them
@@ -696,7 +675,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                 # Add the regressor to model_prophet_df
                 model_prophet_df[regressor] = regressors_df[regressor].values
                 # Add to model
-                model.add_regressor(regressor, mode='multiplicative')
+                # Use additive mode for stability
+                model.add_regressor(regressor, mode='additive')
         
         model.fit(model_prophet_df)
         future = model.make_future_dataframe(periods=30)

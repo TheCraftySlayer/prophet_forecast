@@ -1,6 +1,6 @@
 # Prophet Forecast Analysis
 
-This project forecasts customer service call volume using [Prophet](https://github.com/facebook/prophet). It merges historical call, visitor and chatbot query data and trains a forecasting model. The script also produces diagnostic charts and exports predictions for the next business days.
+This project forecasts customer service call volume using [Prophet](https://github.com/facebook/prophet). It merges historical call, visitor and chatbot query data and trains a forecasting model. The script also produces diagnostic charts and exports predictions for the next business days. The model now uses only visitor and query counts plus a single policy indicator as additive regressors to avoid multicollinearity.
 
 ## Requirements
 
