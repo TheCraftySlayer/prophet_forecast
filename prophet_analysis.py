@@ -536,20 +536,27 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     model.add_seasonality('weekly', period=7, fourier_order=6, mode='additive', prior_scale=0.1)
     model.add_seasonality('yearly', period=365.25, fourier_order=10, mode='additive', prior_scale=0.05)
     
-    # Add key regressor variables
-    important_regressors = [
-        'holiday_flag',
-        'deadline_flag',
-        'visit_log1p',
-        'chatbot_log1p',
-        'visit_weekday_interaction'
-    ]
+    # Select which policy indicator (holiday or deadline) has stronger
+    # correlation with call volume
+    policy_indicator = None
+    if {'call_count', 'holiday_flag', 'deadline_flag'} <= set(regressors_df.columns):
+        corr_holiday = regressors_df['call_count'].corr(regressors_df['holiday_flag'])
+        corr_deadline = regressors_df['call_count'].corr(regressors_df['deadline_flag'])
+        policy_indicator = 'holiday_flag' if abs(corr_holiday) >= abs(corr_deadline) else 'deadline_flag'
+    elif 'holiday_flag' in regressors_df.columns:
+        policy_indicator = 'holiday_flag'
+    elif 'deadline_flag' in regressors_df.columns:
+        policy_indicator = 'deadline_flag'
+
+    # Keep only visitors, queries, and one policy indicator
+    important_regressors = ['visit_log1p', 'chatbot_log1p']
+    if policy_indicator:
+        important_regressors.append(policy_indicator)
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
             prophet_df[regressor] = regressors_df[regressor].values
-            mode = 'additive' if 'flag' in regressor else 'multiplicative'
-            model.add_regressor(regressor, mode=mode)
+            model.add_regressor(regressor, mode='additive')
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -564,22 +571,12 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     # Add regressor values to future DataFrame
     for regressor in important_regressors:
         if regressor in prophet_df.columns:
-            future[regressor] = np.nan
+            future[regressor] = 0
             for i, ds in enumerate(future['ds']):
                 if ds in prophet_df['ds'].values:
                     future.loc[i, regressor] = prophet_df.loc[prophet_df['ds'] == ds, regressor].values[0]
                 else:
-                    if regressor in ['holiday_flag', 'deadline_flag']:
-                        future.loc[i, regressor] = 0
-                    elif regressor == 'visit_log1p':
-                        future.loc[i, regressor] = np.log1p(0)
-                    elif regressor == 'chatbot_log1p':
-                        future.loc[i, regressor] = np.log1p(0)
-                    elif regressor == 'visit_weekday_interaction':
-                        w = 1 if ds.dayofweek < 5 else 0
-                        future.loc[i, regressor] = np.log1p(0) * w
-                    else:
-                        future.loc[i, regressor] = 0
+                    future.loc[i, regressor] = 0
     
     # Make forecast
     logger.info("Making forecast")
@@ -650,13 +647,21 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     
     models = [model1, model2, model3]
     
+    # Determine which policy indicator to keep
+    policy_indicator = None
+    if {'call_count', 'holiday_flag', 'deadline_flag'} <= set(regressors_df.columns):
+        corr_holiday = regressors_df['call_count'].corr(regressors_df['holiday_flag'])
+        corr_deadline = regressors_df['call_count'].corr(regressors_df['deadline_flag'])
+        policy_indicator = 'holiday_flag' if abs(corr_holiday) >= abs(corr_deadline) else 'deadline_flag'
+    elif 'holiday_flag' in regressors_df.columns:
+        policy_indicator = 'holiday_flag'
+    elif 'deadline_flag' in regressors_df.columns:
+        policy_indicator = 'deadline_flag'
+
     # Add same regressors to all models
-    important_regressors = [
-        'holiday_flag',
-        'deadline_flag',
-        'visit_count',
-        'chatbot_count'
-    ]
+    important_regressors = ['visit_log1p', 'chatbot_log1p']
+    if policy_indicator:
+        important_regressors.append(policy_indicator)
     
     # Add regressors to each model and fit them
     forecasts = []
@@ -669,7 +674,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                 # Add the regressor to model_prophet_df
                 model_prophet_df[regressor] = regressors_df[regressor].values
                 # Add to model
-                model.add_regressor(regressor, mode='multiplicative')
+                model.add_regressor(regressor, mode='additive')
         
         model.fit(model_prophet_df)
         future = model.make_future_dataframe(periods=30)
@@ -985,8 +990,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
     features = [
         'holiday_flag',
         'deadline_flag',
-        'visit_count',
-        'chatbot_count',
+        'visit_log1p',
+        'chatbot_log1p',
         'yearly_seasonality',
         'weekly_seasonality'
     ]
@@ -1010,7 +1015,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         # Add regressors to the base model
         for feature in features:
             if feature.endswith('_flag') and feature in prophet_df.columns:
-                model_copy.add_regressor(feature, mode='multiplicative')
+                model_copy.add_regressor(feature, mode='additive')
         
         model_copy.fit(train_df)
         future = model_copy.make_future_dataframe(periods=future_periods)
@@ -1060,7 +1065,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add remaining regressors
                 for other_feature in [f for f in features if f.endswith('_flag') and f != feature]:
                     if other_feature in test_df.columns:
-                        test_model.add_regressor(other_feature, mode='multiplicative')
+                        test_model.add_regressor(other_feature, mode='additive')
                 
                 test_model.fit(test_df)
                 
@@ -1107,7 +1112,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add regressors
                 for other_feature in [f for f in features if f.endswith('_flag')]:
                     if other_feature in prophet_df.columns:
-                        test_model.add_regressor(other_feature, mode='multiplicative')
+                        test_model.add_regressor(other_feature, mode='additive')
                 
                 if quick_mode:
                     # Use the simplified validation approach
