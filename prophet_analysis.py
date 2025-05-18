@@ -651,6 +651,19 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     if model_params:
         default_params.update(model_params)
 
+    # Prophet has a bug when using logistic growth with a single changepoint.
+    # Ensure we provide at least two changepoints to avoid indexing errors.
+    if default_params.get('growth') == 'logistic':
+        cps = default_params.get('changepoints')
+        if cps is not None and len(cps) < 2:
+            logger.warning(
+                "Adding a second changepoint to avoid Prophet single changepoint bug"
+            )
+            mid_date = prophet_df['ds'].min() + (
+                prophet_df['ds'].max() - prophet_df['ds'].min()
+            ) / 2
+            default_params['changepoints'] = [cps[0], pd.Timestamp(mid_date)]
+
     prophet_df['cap'] = max_calls * 1.1
     prophet_df['floor'] = 0
 
