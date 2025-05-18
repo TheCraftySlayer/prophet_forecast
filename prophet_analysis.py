@@ -349,11 +349,15 @@ def prepare_data(call_path,
 
     # Flag events before outlier handling
     deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq='MS')
-    df['holiday_flag'] = np.where(df.index.isin(holiday_dates), -1, 0)
+    df['holiday_flag'] = df.index.isin(holiday_dates).astype(int)
     df['deadline_flag'] = 0
     for d in deadline_dates:
         window = pd.date_range(d - pd.Timedelta(days=5), d + pd.Timedelta(days=1))
         df.loc[df.index.isin(window), 'deadline_flag'] = 1
+
+    # Flag for post-policy period starting May 2025
+    policy_start = pd.Timestamp('2025-05-01')
+    df['post_policy'] = (df.index >= policy_start).astype(int)
 
     event_mask = (df['holiday_flag'] != 0) | (df['deadline_flag'] != 0)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
@@ -397,9 +401,9 @@ def prepare_data(call_path,
     regressors["day_of_week"] = regressors.index.dayofweek
 
     if scale_features:
-        # Standardize numeric regressors (z-score)
+        # Standardize numeric regressors (z-score) except binary flags
         for col in regressors.columns:
-            if col == "call_count":
+            if col == "call_count" or col.endswith("_flag") or col == "post_policy":
                 continue
             if np.issubdtype(regressors[col].dtype, np.number):
                 mean = regressors[col].mean()
@@ -533,23 +537,31 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     prophet_df['floor'] = 0
 
     model = Prophet(**default_params)
-    model.add_seasonality('weekly', period=7, fourier_order=6, mode='additive', prior_scale=0.1)
-    model.add_seasonality('yearly', period=365.25, fourier_order=10, mode='additive', prior_scale=0.05)
+    model.add_seasonality('yearly', period=365.25, fourier_order=8, mode='multiplicative', prior_scale=0.05)
     
+    # Add weekly dummy regressors
+    dow_cols = []
+    for dow in sorted(prophet_df['ds'].dt.dayofweek.unique()):
+        col = f'dow_{dow}'
+        prophet_df[col] = (prophet_df['ds'].dt.dayofweek == dow).astype(int)
+        dow_cols.append(col)
+
     # Add key regressor variables
     important_regressors = [
         'holiday_flag',
         'deadline_flag',
+        'post_policy',
         'visit_log1p',
         'chatbot_log1p',
-        'visit_weekday_interaction'
-    ]
+        'visit_weekday_interaction',
+    ] + dow_cols
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
             prophet_df[regressor] = regressors_df[regressor].values
-            mode = 'additive' if 'flag' in regressor else 'multiplicative'
-            model.add_regressor(regressor, mode=mode)
+        mode = ('additive' if regressor.endswith('_flag') or regressor.startswith('dow_')
+                or regressor == 'post_policy' else 'multiplicative')
+        model.add_regressor(regressor, mode=mode)
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -560,26 +572,34 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     future = model.make_future_dataframe(periods=future_periods)
     future['cap'] = max_calls * 1.1
     future['floor'] = 0
-    
-    # Add regressor values to future DataFrame
-    for regressor in important_regressors:
-        if regressor in prophet_df.columns:
-            future[regressor] = np.nan
-            for i, ds in enumerate(future['ds']):
-                if ds in prophet_df['ds'].values:
-                    future.loc[i, regressor] = prophet_df.loc[prophet_df['ds'] == ds, regressor].values[0]
-                else:
-                    if regressor in ['holiday_flag', 'deadline_flag']:
-                        future.loc[i, regressor] = 0
-                    elif regressor == 'visit_log1p':
-                        future.loc[i, regressor] = np.log1p(0)
-                    elif regressor == 'chatbot_log1p':
-                        future.loc[i, regressor] = np.log1p(0)
-                    elif regressor == 'visit_weekday_interaction':
-                        w = 1 if ds.dayofweek < 5 else 0
-                        future.loc[i, regressor] = np.log1p(0) * w
-                    else:
-                        future.loc[i, regressor] = 0
+
+    future_regs = pd.DataFrame(index=future['ds'])
+
+    # Weekly dummies
+    for col in dow_cols:
+        d = int(col.split('_')[1])
+        future_regs[col] = (future['ds'].dt.dayofweek == d).astype(int)
+
+    # Flags and other regressors
+    future_regs['holiday_flag'] = future['ds'].isin(
+        holidays_df[holidays_df['holiday'] == 'holiday']['ds']
+    ).astype(int)
+    future_regs['deadline_flag'] = future['ds'].isin(
+        holidays_df[holidays_df['holiday'] == 'deadline']['ds']
+    ).astype(int)
+    future_regs['post_policy'] = (future['ds'] >= pd.Timestamp('2025-05-01')).astype(int)
+    future_regs['visit_log1p'] = np.log1p(0)
+    future_regs['chatbot_log1p'] = np.log1p(0)
+    future_regs['visit_weekday_interaction'] = future_regs['visit_log1p'] * (future['ds'].dt.dayofweek < 5).astype(int)
+
+    # Overlay known regressor values from historical data
+    known = regressors_df.reindex(future['ds'])
+    for col in future_regs.columns:
+        if col in known.columns:
+            mask = known[col].notna()
+            future_regs.loc[mask, col] = known.loc[mask, col]
+
+    future = pd.concat([future, future_regs.reset_index(drop=True)], axis=1)
     
     # Make forecast
     logger.info("Making forecast")
