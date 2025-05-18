@@ -29,7 +29,7 @@ python prophet_analysis.py calls.csv visitors.csv queries.csv output_dir
 
 ### Optional arguments
 
-- `--handle-outliers METHOD` – handle detected outliers using `winsorize`, `median_replace` or `interpolate`.
+ - `--handle-outliers METHOD` – handle detected outliers using `winsorize`, `prediction_replace` or `interpolate`.
 - `--use-transformation BOOL` – apply a log transformation to the target before modeling (`true` or `false`).
 - `--skip-feature-importance` – skip the feature importance analysis step.
 - `--cross-validate` – run full Prophet cross-validation after training.
