@@ -30,6 +30,8 @@ import glob
 import pickle
 import random
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.feature_selection import mutual_info_regression
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 # Import Prophet
 from prophet import Prophet
@@ -301,10 +303,21 @@ def prepare_data(call_path,
         "chatbot_count": chat.reindex(idx, fill_value=0)
     }, index=idx)
 
-    # Drop rows where call data is missing (typically weekends)
-    df = df.dropna(subset=["call_count"])
-
+    df['missing_flag'] = df['call_count'].isna().astype(int)
+    df['call_count'] = df['call_count'].ffill(limit=1)
+    df['call_count'] = df['call_count'].interpolate()
     df['call_count'] = df['call_count'].astype(float)
+    z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
+    df['outlier_flag'] = (z.abs() > 3).astype(int)
+    df['call_count'] = df['call_count'].clip(
+        lower=df['call_count'].mean() - 3 * df['call_count'].std(),
+        upper=df['call_count'].mean() + 3 * df['call_count'].std()
+    )
+
+    df['visit_log1p'] = np.log1p(df['visit_count'])
+    df['chatbot_log1p'] = np.log1p(df['chatbot_count'])
+    df['is_weekday'] = (df.index.dayofweek < 5).astype(int)
+    df['visit_weekday_interaction'] = df['visit_log1p'] * df['is_weekday']
 
     # Define 2025 May season mask
     may_start_2025 = pd.Timestamp(2025, 5, 1)
@@ -498,6 +511,17 @@ def prepare_data(call_path,
     # Add day of week information for completeness
     regressors['day_of_week'] = regressors.index.dayofweek
 
+    peak_candidates = ['april_peak_flag', 'nov_season_flag', 'may_2025_policy_changes']
+    avail = [c for c in peak_candidates if c in regressors.columns]
+    if len(avail) > 1:
+        X = regressors[avail]
+        y = regressors['call_count']
+        mi = mutual_info_regression(X, y)
+        best = avail[int(np.argmax(mi))]
+        drop_cols = [c for c in avail if c != best]
+        regressors.drop(columns=drop_cols, inplace=True)
+        df.drop(columns=drop_cols, inplace=True)
+
     return df, regressors
 
 def create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates):
@@ -613,10 +637,13 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     default_params = {
         'yearly_seasonality': True,
         'weekly_seasonality': True,
-        'daily_seasonality': False,  # Not needed as we capture day of week effects
-        'seasonality_mode': 'multiplicative',  # Better for call volumes
-        'changepoint_prior_scale': 0.05,  # Allow moderate flexibility in trend
+        'daily_seasonality': False,
+        'seasonality_mode': 'multiplicative',
+        'changepoint_prior_scale': 0.5,
+        'seasonality_prior_scale': 10,
+        'holidays_prior_scale': 20,
         'holidays': holidays_df,
+        'mcmc_samples': 300,
         'growth': 'logistic',
         'changepoints': [pd.Timestamp('2025-05-01')]
     }
@@ -636,16 +663,16 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         'nov_season_flag',
         'mailout_flag',
         'may_2025_policy_changes',
-        'visit_count',
-        'chatbot_count'
+        'visit_log1p',
+        'chatbot_log1p',
+        'visit_weekday_interaction'
     ]
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
-            # Add the regressor to prophet_df
             prophet_df[regressor] = regressors_df[regressor].values
-            # Add to model
-            model.add_regressor(regressor, mode='multiplicative')
+            mode = 'additive' if 'flag' in regressor else 'multiplicative'
+            model.add_regressor(regressor, mode=mode)
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -660,32 +687,28 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     # Add regressor values to future DataFrame
     for regressor in important_regressors:
         if regressor in prophet_df.columns:
-            # Copy known values to future DataFrame
             future[regressor] = np.nan
             for i, ds in enumerate(future['ds']):
                 if ds in prophet_df['ds'].values:
                     future.loc[i, regressor] = prophet_df.loc[prophet_df['ds'] == ds, regressor].values[0]
                 else:
-                    # For future dates, use reasonable defaults
                     if regressor == 'april_peak_flag':
                         future.loc[i, regressor] = 1 if ds.month == 4 else 0
                     elif regressor == 'november_peak_flag':
                         future.loc[i, regressor] = 1 if (ds.month == 11 and ds.day <= 14) else 0
                     elif regressor == 'nov_season_flag':
-                        # Check if date is in NOV season (April/May depending on year)
                         year, month = ds.year, ds.month
-                        if year == 2024 and month == 4:
-                            future.loc[i, regressor] = 1
-                        elif year == 2025 and month == 5:
-                            future.loc[i, regressor] = 1
-                        else:
-                            future.loc[i, regressor] = 0
+                        future.loc[i, regressor] = 1 if ((year == 2024 and month == 4) or (year == 2025 and month == 5)) else 0
                     elif regressor == 'may_2025_policy_changes':
-                        # Only active in May 2025
-                        year, month = ds.year, ds.month
-                        future.loc[i, regressor] = 1 if year == 2025 and month == 5 else 0
+                        future.loc[i, regressor] = 1 if ds.year == 2025 and ds.month == 5 else 0
+                    elif regressor == 'visit_log1p':
+                        future.loc[i, regressor] = np.log1p(0)
+                    elif regressor == 'chatbot_log1p':
+                        future.loc[i, regressor] = np.log1p(0)
+                    elif regressor == 'visit_weekday_interaction':
+                        w = 1 if ds.dayofweek < 5 else 0
+                        future.loc[i, regressor] = np.log1p(0) * w
                     else:
-                        # Default to 0 for other regressors
                         future.loc[i, regressor] = 0
     
     # Make forecast
@@ -1056,7 +1079,7 @@ def analyze_prophet_components(model, forecast, output_dir):
                 plt.close()
 
 
-def cross_validate_prophet(model, df, periods=14, horizon='14 days'):
+def cross_validate_prophet(model, df, periods=30, horizon='60 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
     df_cv = cross_validation(
         model,
@@ -1739,18 +1762,15 @@ def evaluate_prophet_model(model, prophet_df):
 
     logger = logging.getLogger(__name__)
     logger.info(
-        "Evaluating Prophet model with 365‑day initial window, "
-        "14‑day period, 14‑day horizon"
+        "Evaluating Prophet model with 180-day initial window, "
+        "30-day period, 60-day horizon"
     )
 
-    # ------------------------------------------------------------------
-    # 365‑day initial window  ↓↓↓
-    # ------------------------------------------------------------------
     df_cv = cross_validation(
         model,
-        initial='365 days',
-        period='14 days',
-        horizon='14 days',
+        initial='180 days',
+        period='30 days',
+        horizon='60 days',
         parallel="processes",
     )
 
@@ -1785,10 +1805,24 @@ def evaluate_prophet_model(model, prophet_df):
         "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
         "value":  [mae,  rmse,  mape, coverage]
     })
-    # --------------------------------
 
+    horizon_rows = []
+    for h in [7, 14, 30]:
+        mask = df_cv['horizon'] <= pd.Timedelta(days=h)
+        sub = df_cv[mask]
+        if len(sub) == 0:
+            continue
+        mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
+        rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
+        nonzero = sub['y'] != 0
+        mape_h = (
+            np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) /
+            np.abs(sub.loc[nonzero, 'y'])
+        ).mean() * 100 if nonzero.any() else float('nan')
+        horizon_rows.append([h, mae_h, rmse_h, mape_h])
+    horizon_table = pd.DataFrame(horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE'])
 
-    return df_cv, df_p, summary
+    return df_cv, horizon_table, summary
 
 
 def create_prophet_dashboard(model, forecast, df, output_dir):
@@ -2138,8 +2172,8 @@ def main(argv=None):
             if run_cross_validation:
                 try:
                     logger.info("Evaluating model with cross-validation")
-                    df_cv, df_p, summary = evaluate_prophet_model(model, prophet_df)
-                    df_p.to_csv(output_dir / "cross_validation_metrics.csv", index=False)
+                    df_cv, horizon_table, summary = evaluate_prophet_model(model, prophet_df)
+                    horizon_table.to_csv(output_dir / "cross_validation_metrics.csv", index=False)
                     summary.to_csv(output_dir / "cross_validation_summary.csv", index=False)
                 except Exception as e:
                     logger.warning(f"Cross-validation failed: {str(e)}")
