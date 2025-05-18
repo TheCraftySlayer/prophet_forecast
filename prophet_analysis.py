@@ -32,6 +32,8 @@ import random
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.feature_selection import mutual_info_regression
 from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.stats.diagnostic import acorr_ljungbox
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 # Import Prophet
 from prophet import Prophet
@@ -58,6 +60,15 @@ except ImportError:
     raise ImportError(
         "Missing optional dependency 'openpyxl'. Install via pip install openpyxl"
     )
+
+
+def winsorize_series(series, limit=3):
+    """Symmetric winsorization using mean ± limit*std."""
+    mean = series.mean()
+    std = series.std()
+    lower = mean - limit * std
+    upper = mean + limit * std
+    return series.clip(lower, upper)
 def tune_prophet_hyperparameters(prophet_df):
     """Find optimal Prophet hyperparameters using grid search"""
     logger = logging.getLogger(__name__)
@@ -291,7 +302,7 @@ def prepare_data(call_path,
     start = min(calls.index.min(), visits.index.min(), chat.index.min())
     end = max(calls.index.max(), visits.index.max(), chat.index.max())
     logger.info(f"Creating unified date range from {start} to {end}")
-    idx = pd.date_range(start=start, end=end, freq="D")
+    idx = pd.date_range(start=start, end=end, freq="B")
 
     # Build main dataframe
     # Do not fill missing call data with zeros to avoid distorting
@@ -309,10 +320,7 @@ def prepare_data(call_path,
     df['call_count'] = df['call_count'].astype(float)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
     df['outlier_flag'] = (z.abs() > 3).astype(int)
-    df['call_count'] = df['call_count'].clip(
-        lower=df['call_count'].mean() - 3 * df['call_count'].std(),
-        upper=df['call_count'].mean() + 3 * df['call_count'].std()
-    )
+    df['call_count'] = winsorize_series(df['call_count'])
 
     df['visit_log1p'] = np.log1p(df['visit_count'])
     df['chatbot_log1p'] = np.log1p(df['chatbot_count'])
@@ -320,13 +328,12 @@ def prepare_data(call_path,
     df['visit_weekday_interaction'] = df['visit_log1p'] * df['is_weekday']
 
     # Define 2025 May season mask
-    may_start_2025 = pd.Timestamp(2025, 5, 1)
-    may_end_2025 = pd.Timestamp(2025, 5, 31)
-    may_mask_2025 = (df.index >= may_start_2025) & (df.index <= may_end_2025)
-
-    # Create may_2025_policy_changes flag
-    df["may_2025_policy_changes"] = 0
-    df.loc[may_mask_2025, "may_2025_policy_changes"] = 1
+    # Policy change impulse in Q2 2025 with 7-day exponential decay
+    impulse_date = pd.Timestamp(2025, 4, 1)
+    df["policy_change_q22025"] = 0.0
+    for i, ts in enumerate(df.index):
+        if ts >= impulse_date and (ts - impulse_date).days <= 7:
+            df.loc[ts, "policy_change_q22025"] = np.exp(-(ts - impulse_date).days / 7)
 
     # Feature engineering: lags and rolling stats for potential use as regressors
     logger.info("Creating lag and rolling features")
@@ -347,180 +354,34 @@ def prepare_data(call_path,
 
     # Continue with existing holiday and deadline flags, etc. (existing code)
     logger.info("Creating holiday and deadline flags")
-    holiday_dates = [
-        date(2023, 1, 2),
-        date(2023, 1, 16),
-        date(2023, 4, 7),
-        date(2023, 5, 29),
-        date(2023, 6, 19),
-        date(2023, 7, 4),
-        date(2023, 9, 4),
-        date(2023, 11, 10),
-        date(2023, 11, 23),
-        date(2023, 11, 24),
-        date(2023, 12, 25),
-        date(2023, 12, 26),
-        date(2024, 1, 1),
-        date(2024, 1, 15),
-        date(2024, 3, 29),
-        date(2024, 5, 27),
-        date(2024, 6, 19),
-        date(2024, 7, 4),
-        date(2024, 10, 14),
-        date(2024, 11, 11),
-        date(2024, 11, 28),
-        date(2024, 11, 29),
-        date(2024, 12, 24),
-        date(2024, 12, 25),
-        date(2025, 1, 1),
-        date(2025, 1, 20),
-        date(2025, 4, 18),
-        date(2025, 5, 26),
-        date(2025, 6, 19),
-        date(2025, 7, 4),
-        date(2025, 9, 1),
-        date(2025, 10, 13),
-        date(2025, 11, 11),
-        date(2025, 11, 27),
-        date(2025, 11, 28),
-        date(2025, 12, 24),
-        date(2025, 12, 25)
-    ]
-    deadline_dates = [
-        date(2023, 9, 1),
-        date(2023, 9, 6),
-        date(2023, 10, 1),
-        date(2023, 11, 1),
-        date(2023, 12, 1),
-        date(2024, 2, 28),
-        date(2024, 4, 1),
-        date(2024, 4, 30),
-        date(2024, 6, 1),
-        date(2024, 6, 15),
-        date(2024, 6, 30),
-        date(2024, 8, 1),
-        date(2024, 9, 1),
-        date(2024, 9, 6),
-        date(2024, 10, 1),
-        date(2024, 11, 1),
-        date(2024, 12, 1),
-        date(2025, 2, 28),
-        date(2025, 4, 1),
-        date(2025, 4, 30),
-        date(2025, 6, 1),
-        date(2025, 6, 15),
-        date(2025, 6, 30),
-        date(2025, 8, 1),
-        date(2025, 9, 1),
-        date(2025, 9, 6),
-        date(2025, 10, 1),
-        date(2025, 11, 1),
-        date(2025, 12, 1)
-    ]
-    df["holiday_flag"] = build_flag_series(idx, holiday_dates)
-    df["deadline_flag"] = build_flag_series(idx, deadline_dates)
+    holiday_cal = USFederalHolidayCalendar()
+    holiday_dates = holiday_cal.holidays(start=idx.min(), end=idx.max())
+    deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq='MS')
+    df["holiday_flag"] = df.index.isin(holiday_dates).astype(int)
+    df["deadline_flag"] = df.index.isin(deadline_dates).astype(int)
     df["post_holiday_flag"] = df["holiday_flag"].shift(1).fillna(0).astype(int)
 
-    # Continue with existing seasonal business cycle flags
-    logger.info("Creating seasonal business cycle flags")
+    # Seasonal cycle flags are handled by Prophet's Fourier terms
 
-    # Flag for first week of May (NOV season peak)
-    df["nov_first_week_flag"] = ((df.index.month == 5) & (df.index.day >= 1) &
-                                 (df.index.day <= 7)).astype(int)
 
-    # Flag for second week of May (NOV season decline)
-    df["nov_second_week_flag"] = ((df.index.month == 5) & (df.index.day >= 8) &
-                                  (df.index.day <= 14)).astype(int)
 
-    # Flag for third week of May (NOV season further decline)
-    df["nov_third_week_flag"] = ((df.index.month == 5) & (df.index.day >= 15) &
-                                 (df.index.day <= 21)).astype(int)
 
-    # NOV season 2024 (April) first week flag
-    df["nov_2024_first_week_flag"] = ((df.index.year == 2024) &
-                                      (df.index.month == 4) &
-                                      (df.index.day >= 1) &
-                                      (df.index.day <= 7)).astype(int)
-
-    # NOV season 2024 (April) second week flag
-    df["nov_2024_second_week_flag"] = ((df.index.year == 2024) &
-                                       (df.index.month == 4) &
-                                       (df.index.day >= 8) &
-                                       (df.index.day <= 14)).astype(int)
-
-    # General NOV season flag (combines both years)
-    df["nov_season_flag"] = 0
-
-    # 2024 NOV season (April 1-30, 2024)
-    nov_start_2024 = pd.Timestamp(2024, 4, 1)
-    nov_end_2024 = pd.Timestamp(2024, 4, 30)
-    nov_mask_2024 = (df.index >= nov_start_2024) & (df.index <= nov_end_2024)
-    df.loc[nov_mask_2024, "nov_season_flag"] = 1
-
-    # Update 2025 season to full May
-    df.loc[may_mask_2025, "nov_season_flag"] = 1
-
-    # ------------------------------------------------------------------
-    # Separate seasonal peak flags for April and November
-    # ------------------------------------------------------------------
-    logger.info("Creating April and November peak flags")
-    df["april_peak_flag"] = (df.index.month == 4).astype(int)
-    df["november_peak_flag"] = ((df.index.month == 11) & (df.index.day <= 14)).astype(int)
-
-    # Press release features - key assessment dates
-    logger.info("Creating press release features")
-    press_release_dates = [
-        date(2025, 1, 9),
-        date(2025, 2, 4),
-        date(2025, 2, 24),
-        date(2025, 3, 28),
-        date(2025, 4, 1),
-        date(2025, 4, 3),
-        date(2025, 4, 23),
-        date(2025, 4, 30),
-        date(2025, 5, 1),
-        date(2025, 5, 5),
-        date(2025, 5, 9),
-        date(2025, 5, 13)
-    ]
-
-    # Add press release flags
-    df["press_release_flag"] = build_flag_series(idx, press_release_dates)
-
-    # Add lagged effect flags for press releases (1-3 days after)
-    for lag in range(1, 4):
-        df[f"press_release_lag{lag}"] = df["press_release_flag"].shift(
-            lag).fillna(0).astype(int)
-
-    # Mail-out features
-    logger.info("Creating mail-out features")
-    mailout_schedule = {
-        pd.Timestamp("2025-01-16"): 3000,
-        pd.Timestamp("2025-01-24"): 6000,
-        pd.Timestamp("2025-01-27"): 3000 * 4 + 3724 + 692,
-        pd.Timestamp("2025-01-30"): 1851,
-        pd.Timestamp("2025-04-30"): 65 + 87
-    }
-    mailout_count = pd.Series(mailout_schedule).reindex(idx, fill_value=0)
-    df["mailout_count"] = mailout_count
-    df["mailout_flag"] = (mailout_count > 0).astype(int)
 
     # Create regressors dataframe for Prophet
     regressors = df.copy()
 
     # Add day of week information for completeness
-    regressors['day_of_week'] = regressors.index.dayofweek
+    regressors["day_of_week"] = regressors.index.dayofweek
 
-    peak_candidates = ['april_peak_flag', 'nov_season_flag', 'may_2025_policy_changes']
-    avail = [c for c in peak_candidates if c in regressors.columns]
-    if len(avail) > 1:
-        X = regressors[avail]
-        y = regressors['call_count']
-        mi = mutual_info_regression(X, y)
-        best = avail[int(np.argmax(mi))]
-        drop_cols = [c for c in avail if c != best]
-        regressors.drop(columns=drop_cols, inplace=True)
-        df.drop(columns=drop_cols, inplace=True)
+    # Standardize numeric regressors (z-score)
+    for col in regressors.columns:
+        if col == "call_count":
+            continue
+        if np.issubdtype(regressors[col].dtype, np.number):
+            mean = regressors[col].mean()
+            std = regressors[col].std()
+            if std != 0:
+                regressors[col] = (regressors[col] - mean) / std
 
     return df, regressors
 
@@ -635,15 +496,15 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     max_calls = prophet_df['y'].max()
 
     default_params = {
-        'yearly_seasonality': True,
+        'yearly_seasonality': 8,
         'weekly_seasonality': True,
         'daily_seasonality': False,
         'seasonality_mode': 'multiplicative',
         'changepoint_prior_scale': 0.5,
-        'seasonality_prior_scale': 10,
+        'seasonality_prior_scale': 0.05,
         'holidays_prior_scale': 20,
         'holidays': holidays_df,
-        'mcmc_samples': 300,
+        'mcmc_samples': 0,
         'growth': 'logistic',
         'changepoints': [pd.Timestamp('2025-05-01')]
     }
@@ -671,11 +532,10 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     
     # Add key regressor variables
     important_regressors = [
-        'april_peak_flag',
-        'november_peak_flag',
-        'nov_season_flag',
-        'mailout_flag',
-        'may_2025_policy_changes',
+        'policy_change_q22025',
+        'holiday_flag',
+        'deadline_flag',
+        'post_holiday_flag',
         'visit_log1p',
         'chatbot_log1p',
         'visit_weekday_interaction'
@@ -705,15 +565,10 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
                 if ds in prophet_df['ds'].values:
                     future.loc[i, regressor] = prophet_df.loc[prophet_df['ds'] == ds, regressor].values[0]
                 else:
-                    if regressor == 'april_peak_flag':
-                        future.loc[i, regressor] = 1 if ds.month == 4 else 0
-                    elif regressor == 'november_peak_flag':
-                        future.loc[i, regressor] = 1 if (ds.month == 11 and ds.day <= 14) else 0
-                    elif regressor == 'nov_season_flag':
-                        year, month = ds.year, ds.month
-                        future.loc[i, regressor] = 1 if ((year == 2024 and month == 4) or (year == 2025 and month == 5)) else 0
-                    elif regressor == 'may_2025_policy_changes':
-                        future.loc[i, regressor] = 1 if ds.year == 2025 and ds.month == 5 else 0
+                    if regressor in ['holiday_flag', 'deadline_flag', 'post_holiday_flag']:
+                        future.loc[i, regressor] = 0
+                    elif regressor == 'policy_change_q22025':
+                        future.loc[i, regressor] = np.exp(-(ds - pd.Timestamp('2025-04-01')).days / 7) if ds >= pd.Timestamp('2025-04-01') and (ds - pd.Timestamp('2025-04-01')).days <= 7 else 0
                     elif regressor == 'visit_log1p':
                         future.loc[i, regressor] = np.log1p(0)
                     elif regressor == 'chatbot_log1p':
@@ -767,11 +622,10 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     
     # Add same regressors to all models
     important_regressors = [
-        'april_peak_flag',
-        'november_peak_flag',
-        'nov_season_flag',
-        'mailout_flag',
-        'may_2025_policy_changes',
+        'policy_change_q22025',
+        'holiday_flag',
+        'deadline_flag',
+        'post_holiday_flag',
         'visit_count',
         'chatbot_count'
     ]
@@ -807,25 +661,9 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                         future.loc[j, regressor] = model_prophet_df.loc[matched_rows, regressor].iloc[0]
                     else:
                         # For future dates, use reasonable defaults
-                        if regressor == 'april_peak_flag':
-                            future.loc[j, regressor] = 1 if ds.month == 4 else 0
-                        elif regressor == 'november_peak_flag':
-                            future.loc[j, regressor] = 1 if (ds.month == 11 and ds.day <= 14) else 0
-                        elif regressor == 'nov_season_flag':
-                            # Check if date is in NOV season (April/May depending on year)
-                            year, month = ds.year, ds.month
-                            if year == 2024 and month == 4:
-                                future.loc[j, regressor] = 1
-                            elif year == 2025 and month == 5:
-                                future.loc[j, regressor] = 1
-                            else:
-                                future.loc[j, regressor] = 0
-                        elif regressor == 'may_2025_policy_changes':
-                            # Only active in May 2025
-                            year, month = ds.year, ds.month
-                            future.loc[j, regressor] = 1 if year == 2025 and month == 5 else 0
+                        if regressor == 'policy_change_q22025':
+                            future.loc[j, regressor] = np.exp(-(ds - pd.Timestamp('2025-04-01')).days / 7) if ds >= pd.Timestamp('2025-04-01') and (ds - pd.Timestamp('2025-04-01')).days <= 7 else 0
                         else:
-                            # Default to 0 for other regressors
                             future.loc[j, regressor] = 0
         
         # Double-check for NaN values
@@ -1121,11 +959,10 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
     
     # Create versions of the data with one feature removed at a time
     features = [
-        'april_peak_flag',
-        'november_peak_flag',
-        'nov_season_flag',
-        'mailout_flag',
-        'may_2025_policy_changes',
+        'policy_change_q22025',
+        'holiday_flag',
+        'deadline_flag',
+        'post_holiday_flag',
         'visit_count',
         'chatbot_count',
         'yearly_seasonality',
@@ -1422,10 +1259,10 @@ def analyze_policy_changes_prophet(df, forecast, output_dir):
         (forecast['ds'].dt.month == 5)
     ].copy()
     
-    # If we have the 'may_2025_policy_changes' regressor effect
-    if 'may_2025_policy_changes' in may_2025_forecast.columns:
+    # If we have the policy change regressor effect
+    if 'policy_change_q22025' in may_2025_forecast.columns:
         # Calculate effect of policy
-        policy_effect = may_2025_forecast['may_2025_policy_changes']
+        policy_effect = may_2025_forecast['policy_change_q22025']
         
         # Create counterfactual by removing policy effect
         may_2025_forecast['yhat_no_policy'] = may_2025_forecast['yhat'] / (1 + policy_effect)
@@ -1653,15 +1490,8 @@ def export_prophet_forecast(model, forecast, df, output_dir):
         
         # Add any required regressors
         for regressor in model.extra_regressors:
-            if regressor == 'april_peak_flag':
-                future[regressor] = 1 if next_day.month == 4 else 0
-            elif regressor == 'november_peak_flag':
-                future[regressor] = 1 if (next_day.month == 11 and next_day.day <= 14) else 0
-            elif regressor == 'nov_season_flag':
-                future[regressor] = 1 if ((next_day.year == 2024 and next_day.month == 4) or
-                                          (next_day.year == 2025 and next_day.month == 5)) else 0
-            elif regressor == 'may_2025_policy_changes':
-                future[regressor] = 1 if next_day.year == 2025 and next_day.month == 5 else 0
+            if regressor == 'policy_change_q22025':
+                future[regressor] = np.exp(-(next_day - pd.Timestamp('2025-04-01')).days / 7) if next_day >= pd.Timestamp('2025-04-01') and (next_day - pd.Timestamp('2025-04-01')).days <= 7 else 0
             else:
                 future[regressor] = 0
         
@@ -1813,6 +1643,11 @@ def evaluate_prophet_model(model, prophet_df):
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
     )
 
+    residuals = df_cv['y'] - df_cv['yhat']
+    lb = acorr_ljungbox(residuals, lags=14, return_df=True)
+    ac_flag = (lb['lb_pvalue'] < 0.05) | (lb['lb_stat'] > 0.2)
+    autocorr_flag = bool(ac_flag.any())
+
         # ---------- NEW BLOCK ----------
     summary = pd.DataFrame({
         "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
@@ -1835,7 +1670,18 @@ def evaluate_prophet_model(model, prophet_df):
         horizon_rows.append([h, mae_h, rmse_h, mape_h])
     horizon_table = pd.DataFrame(horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE'])
 
-    return df_cv, horizon_table, summary
+    diag = pd.DataFrame({
+        'lag': lb.index,
+        'lb_stat': lb['lb_stat'],
+        'lb_pvalue': lb['lb_pvalue']
+    })
+
+    if mae > 30 or rmse > 50:
+        logger.warning('Model performance below target thresholds.')
+    if autocorr_flag:
+        logger.warning('Autocorrelation detected in residuals.')
+
+    return df_cv, horizon_table, summary, diag
 
 
 def create_prophet_dashboard(model, forecast, df, output_dir):
@@ -2179,8 +2025,6 @@ def main(argv=None):
             # Analyze policy changes
             policy_summary = analyze_policy_changes_prophet(df, forecast, output_dir)
             
-            # Analyze press release impact
-            press_release_impact = analyze_press_release_impact_prophet(forecast, output_dir)
 
             if run_cross_validation:
                 try:
