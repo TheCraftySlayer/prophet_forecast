@@ -208,6 +208,9 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
     df["date_parsed"] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=["date_parsed"])
 
+    # Drop weekends before further processing
+    df = df[df["date_parsed"].dt.dayofweek < 5]
+
     # Return the time series
     return df.set_index("date_parsed")[value_col].sort_index()
 
@@ -359,6 +362,10 @@ def prepare_data(call_path,
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
     df['outlier_flag'] = ((z.abs() > 3) & ~event_mask).astype(int)
     df.loc[df['outlier_flag'] == 1, 'call_count'] = winsorize_series(df.loc[df['outlier_flag'] == 1, 'call_count'])
+
+    # Clip extreme call counts at the 95th percentile
+    clip_val = df['call_count'].quantile(0.95)
+    df['call_count'] = df['call_count'].clip(upper=clip_val)
 
     df['visit_log1p'] = np.log1p(df['visit_count'])
     df['chatbot_log1p'] = np.log1p(df['chatbot_count'])
