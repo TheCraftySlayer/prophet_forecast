@@ -1430,6 +1430,47 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     return result, metrics
 
 
+def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
+    """Export naive baseline forecast to Excel and CSV.
+
+    This writes a workbook with three sheets - ``Baseline``, ``Metrics`` and
+    ``Input Data`` - summarizing the naive forecast for the last 14 days. The
+    forecast CSV is saved as ``baseline_forecast.csv``.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Data containing a ``call_count`` column.
+    output_dir : Path
+        Directory where output files will be written.
+
+    Returns
+    -------
+    Path
+        Path to the generated Excel workbook.
+    """
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    baseline_df, metrics = compute_naive_baseline(df)
+
+    csv_path = output_dir / "baseline_forecast.csv"
+    baseline_df.to_csv(csv_path, index=False)
+
+    excel_path = output_dir / "baseline_forecast.xlsx"
+    input_data = (
+        df.sort_index().iloc[-15:].reset_index().rename(columns={"index": "date"})
+    )
+
+    with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        baseline_df.to_excel(writer, sheet_name="Baseline", index=False)
+        metrics.to_excel(writer, sheet_name="Metrics", index=False)
+        input_data.to_excel(writer, sheet_name="Input Data", index=False)
+
+    return excel_path
+
+
 def export_prophet_forecast(model, forecast, df, output_dir):
     """
     Export Prophet forecast to Excel.
