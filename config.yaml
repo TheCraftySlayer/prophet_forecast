@@ -1,10 +1,10 @@
 model:
   seasonality_mode: multiplicative
   additive_terms: ['event_dummies']
-  seasonality_prior_scale: 10
+  seasonality_prior_scale: 0.05
   holidays_prior_scale: 20
   changepoint_prior_scale: 0.5
-  mcmc_samples: 300
+  mcmc_samples: 0
   weekly_seasonality: true
   yearly_seasonality: true
   daily_seasonality: false

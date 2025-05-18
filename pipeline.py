@@ -9,7 +9,9 @@ from prophet_analysis import (
     create_prophet_holidays,
     export_prophet_forecast,
 )
-from datetime import date
+from datetime import date, datetime
+import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
 import logging
 
 
@@ -27,7 +29,10 @@ def pipeline(config_path: Path):
     call_path = Path(cfg['data']['calls'])
     visit_path = Path(cfg['data']['visitors'])
     chat_path = Path(cfg['data']['queries'])
-    out_dir = Path(cfg.get('output', 'prophet_output'))
+    base_out = Path(cfg.get('output', 'prophet_output'))
+    base_out.mkdir(exist_ok=True)
+    run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+    out_dir = base_out / run_id
     out_dir.mkdir(exist_ok=True)
 
     df, regressors = prepare_data(call_path, visit_path, chat_path, scale_features=True)
@@ -46,10 +51,11 @@ def pipeline(config_path: Path):
     }
     model_params.update(best_params)
 
-    holiday_dates = [date(2024,1,1)]
-    deadline_dates = []
-    press_release_dates = []
-    holidays = create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates)
+    idx = df.index
+    holiday_cal = USFederalHolidayCalendar()
+    holiday_dates = holiday_cal.holidays(start=idx.min(), end=idx.max())
+    deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq='MS')
+    holidays = create_prophet_holidays(holiday_dates, deadline_dates, [])
 
     model, forecast, future = train_prophet_model(
         prophet_df,
@@ -59,7 +65,10 @@ def pipeline(config_path: Path):
         model_params=model_params,
     )
 
-    evaluate_prophet_model(model, prophet_df)
+    df_cv, horizon_table, summary, diag = evaluate_prophet_model(model, prophet_df)
+    summary.to_csv(out_dir / "summary.csv", index=False)
+    horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)
+    diag.to_csv(out_dir / "ljung_box.csv", index=False)
     export_prophet_forecast(model, forecast, df, out_dir)
 
 
