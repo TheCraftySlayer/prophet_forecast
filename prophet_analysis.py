@@ -1644,6 +1644,10 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None):
         parallel="processes",
     )
 
+    # Propagate horizon column if not provided by cross_validation
+    if 'horizon' not in df_cv.columns and {'ds', 'cutoff'} <= set(df_cv.columns):
+        df_cv['horizon'] = df_cv['ds'] - df_cv['cutoff']
+
     df_p = performance_metrics(df_cv, rolling_window=1)
 
     mae  = df_p['mae' ].mean() if 'mae'  in df_p else float('nan')
