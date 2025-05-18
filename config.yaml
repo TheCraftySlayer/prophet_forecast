@@ -1,6 +1,10 @@
+data:
+  calls: calls.csv
+  visitors: visitors.csv
+  queries: queries.csv
+output: prophet_output
 model:
   seasonality_mode: multiplicative
-  additive_terms: ['event_dummies']
   seasonality_prior_scale: 0.05
   holidays_prior_scale: 20
   changepoint_prior_scale: 0.5
