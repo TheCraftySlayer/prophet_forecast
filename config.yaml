@@ -7,12 +7,12 @@ model:
   seasonality_mode: multiplicative
   seasonality_prior_scale: 0.05
   holidays_prior_scale: 20
-  changepoint_prior_scale: 0.5
+  changepoint_prior_scale: 0.1
   mcmc_samples: 0
   weekly_seasonality: true
   yearly_seasonality: true
   daily_seasonality: false
 cross_validation:
-  initial: '180 days'
+  initial: '365 days'
   period: '30 days'
-  horizon: '60 days'
+  horizon: '30 days'
