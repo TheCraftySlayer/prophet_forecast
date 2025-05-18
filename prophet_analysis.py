@@ -591,6 +591,15 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
 
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
+
+    # Guard against any unexpected NaNs in the merged regressor columns
+    for col in future_regs.columns:
+        if col in future.columns:
+            if future[col].isna().any():
+                logger.warning(
+                    f"Found {future[col].isna().sum()} NaN values in {col} after merge, filling with 0"
+                )
+                future[col] = future[col].fillna(0)
     
     # Make forecast
     logger.info("Making forecast")
