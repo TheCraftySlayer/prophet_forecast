@@ -216,7 +216,7 @@ def tune_prophet_hyperparameters(prophet_df):
                 yearly_seasonality=False,
                 weekly_seasonality=True,
                 daily_seasonality=False,
-                seasonality_mode='additive',
+                seasonality_mode='multiplicative',
                 **params
             )
             
@@ -667,7 +667,7 @@ def train_prophet_model(
         'yearly_seasonality': False,
         'weekly_seasonality': True,
         'daily_seasonality': False,
-        'seasonality_mode': 'additive',
+        'seasonality_mode': 'multiplicative',
         'n_changepoints': 25,
         'changepoint_prior_scale': 0.05,
         'changepoints': [pd.Timestamp('2025-05-01')],
@@ -838,7 +838,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         yearly_seasonality=False,
         weekly_seasonality=True,
         daily_seasonality=False,
-        seasonality_mode='additive',
+        seasonality_mode='multiplicative',
         changepoint_prior_scale=0.05
     )
     
@@ -847,7 +847,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         yearly_seasonality=False,
         weekly_seasonality=True,
         daily_seasonality=False,
-        seasonality_mode='additive',
+        seasonality_mode='multiplicative',
         changepoint_prior_scale=0.05
     )
     
@@ -856,7 +856,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         yearly_seasonality=False,
         weekly_seasonality=True,
         daily_seasonality=False,
-        seasonality_mode='additive',
+        seasonality_mode='multiplicative',
         changepoint_prior_scale=0.05
     )
     
@@ -1227,7 +1227,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
             yearly_seasonality=False,
             weekly_seasonality=True,
             daily_seasonality=False,
-            seasonality_mode='additive',
+            seasonality_mode='multiplicative',
             changepoint_prior_scale=model.changepoint_prior_scale
         )
         
@@ -1279,7 +1279,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     yearly_seasonality=False,
                     weekly_seasonality=True,
                     daily_seasonality=False,
-                    seasonality_mode='additive',
+                    seasonality_mode='multiplicative',
                     changepoint_prior_scale=model.changepoint_prior_scale
                 )
                 
@@ -1327,7 +1327,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     yearly_seasonality=(feature != 'yearly_seasonality'),
                     weekly_seasonality=(feature != 'weekly_seasonality'),
                     daily_seasonality=False,
-                    seasonality_mode='additive',
+                    seasonality_mode='multiplicative',
                     changepoint_prior_scale=model.changepoint_prior_scale
                 )
                 
