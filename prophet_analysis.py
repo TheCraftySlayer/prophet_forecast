@@ -745,11 +745,12 @@ def train_prophet_model(
     future['cap'] = max_calls * 1.1
     future['floor'] = 0
 
-    # Create an empty regressor frame indexed by the forecast dates
-    future_regs = pd.DataFrame(index=future['ds'])
+    # Build full daily calendar covering the forecast horizon
+    full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='D')
+    future_regs = pd.DataFrame(index=full_dates)
 
     # Required regressors only
-    future_regs['post_policy'] = (future['ds'] >= pd.Timestamp('2025-05-01')).astype(int)
+    future_regs['post_policy'] = (future_regs.index >= pd.Timestamp('2025-05-01')).astype(int)
     future_regs['visit_count'] = 0
     future_regs['chatbot_count'] = 0
     future_regs['notice_flag'] = 0
@@ -761,7 +762,7 @@ def train_prophet_model(
     future_regs[reg_cols] = future_regs[reg_cols].astype("float64")
 
     # Overlay known regressor values from historical data
-    known = regressors_df.reindex(future['ds'])
+    known = regressors_df.reindex(future_regs.index)
     for col in future_regs.columns:
         if col in known.columns:
             mask = known[col].notna()
@@ -770,14 +771,13 @@ def train_prophet_model(
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
 
-    # Guard against any unexpected NaNs in the merged regressor columns
+
+    # Basic sanity check for merged regressors
     for col in future_regs.columns:
-        if col in future.columns:
-            if future[col].isna().any():
-                logger.warning(
-                    f"Found {future[col].isna().sum()} NaN values in {col} after merge, filling with 0"
-                )
-                future[col] = future[col].fillna(0)
+        if col in future.columns and future[col].isna().any():
+            logger.warning(
+                f"Found {future[col].isna().sum()} NaN values in {col} after merge"
+            )
     
     # Make forecast
     logger.info("Making forecast")
