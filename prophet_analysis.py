@@ -763,6 +763,10 @@ def train_prophet_model(
     future_regs['deadline_flag'] = 0
     future_regs['federal_holiday_flag'] = 0
 
+    # Ensure float dtypes before merging to avoid warnings
+    reg_cols = list(future_regs.columns)
+    future_regs[reg_cols] = future_regs[reg_cols].astype("float64")
+
     # Overlay known regressor values from historical data
     known = regressors_df.reindex(future['ds'])
     for col in future_regs.columns:
@@ -959,9 +963,11 @@ def detect_outliers_prophet(df, forecast):
     
     # Create DataFrame with actual and predicted values
     prophet_df = df.reset_index().rename(columns={'index': 'ds'})
+    reg_cols = [c for c in prophet_df.columns if c != 'ds']
+    prophet_df[reg_cols] = prophet_df[reg_cols].astype("float64")
     prophet_df = prophet_df.merge(
-        forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']], 
-        on='ds', 
+        forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']],
+        on='ds',
         how='left'
     )
     
