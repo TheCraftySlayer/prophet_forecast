@@ -46,7 +46,6 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.feature_selection import mutual_info_regression
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.diagnostic import acorr_ljungbox
-from holidays_calendar import get_holidays_dataframe
 
 # Import Prophet
 try:
@@ -103,6 +102,8 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 # heavy third-party libraries have been loaded.
 if _USE_REAL_LIBS and _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
+
+from holidays_calendar import get_holidays_dataframe
 
 # Optional CmdStanPy dependency to locate tbb runtime
 try:
