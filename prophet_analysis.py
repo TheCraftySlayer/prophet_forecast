@@ -33,6 +33,11 @@ if _USE_REAL_LIBS:
         if os.path.abspath(p or os.getcwd()) != _THIS_DIR
     ]
 import matplotlib
+if not hasattr(matplotlib, "use"):
+    raise ImportError(
+        "The bundled matplotlib stub was imported. "
+        "Install the real matplotlib package and set USE_REAL_LIBS=1 to use it."
+    )
 matplotlib.use("Agg")  # ensure headless backend for multiprocessing safety
 import pandas as pd
 import numpy as np
