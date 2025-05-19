@@ -740,8 +740,9 @@ def train_prophet_model(
     if log_transform:
         prophet_df['y'] = np.log1p(prophet_df['y'])
 
-    prophet_df['cap'] = max_calls * 1.1
-    prophet_df['floor'] = 0
+    if default_params.get('growth') == 'logistic':
+        prophet_df['cap'] = max_calls * 1.1
+        prophet_df['floor'] = 0
 
     custom_model_path = None
     if likelihood != "normal":
@@ -793,8 +794,9 @@ def train_prophet_model(
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods)
-    future['cap'] = max_calls * 1.1
-    future['floor'] = 0
+    if default_params.get('growth') == 'logistic':
+        future['cap'] = max_calls * 1.1
+        future['floor'] = 0
 
     # Build full daily calendar covering the forecast horizon
     full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='D')
