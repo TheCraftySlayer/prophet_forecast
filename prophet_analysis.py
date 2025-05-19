@@ -1126,25 +1126,26 @@ def analyze_prophet_components(model, forecast, output_dir):
     plt.savefig(output_dir / "weekly_effect.png")
     plt.close()
     
-    # Analyze yearly pattern
-    year_df = forecast[['ds', 'yearly']].copy()
-    year_df['month'] = year_df['ds'].dt.month
-    year_df['month_name'] = year_df['month'].apply(lambda x: datetime(2000, x, 1).strftime('%B'))
-    
-    # Calculate average effect by month
-    month_effect = year_df.groupby('month_name')['yearly'].mean()
-    month_names = [datetime(2000, i, 1).strftime('%B') for i in range(1, 13)]
-    month_effect = month_effect.reindex(month_names)
-    
-    plt.figure(figsize=(12, 6))
-    plt.bar(month_effect.index, month_effect.values)
-    plt.title('Yearly Seasonal Effect by Month')
-    plt.ylabel('Multiplicative Effect')
-    plt.xticks(rotation=45)
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(output_dir / "yearly_effect.png")
-    plt.close()
+    # Analyze yearly pattern if available
+    if 'yearly' in forecast.columns:
+        year_df = forecast[['ds', 'yearly']].copy()
+        year_df['month'] = year_df['ds'].dt.month
+        year_df['month_name'] = year_df['month'].apply(lambda x: datetime(2000, x, 1).strftime('%B'))
+
+        # Calculate average effect by month
+        month_effect = year_df.groupby('month_name')['yearly'].mean()
+        month_names = [datetime(2000, i, 1).strftime('%B') for i in range(1, 13)]
+        month_effect = month_effect.reindex(month_names)
+
+        plt.figure(figsize=(12, 6))
+        plt.bar(month_effect.index, month_effect.values)
+        plt.title('Yearly Seasonal Effect by Month')
+        plt.ylabel('Multiplicative Effect')
+        plt.xticks(rotation=45)
+        plt.grid(axis='y', alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(output_dir / "yearly_effect.png")
+        plt.close()
     
     # Analyze holidays effect
     if 'holidays' in forecast.columns:
