@@ -53,13 +53,12 @@ except ImportError:
             plt.colorbar()
     sns = SeabornFallback()
 
-# Import pandas with openpyxl dependency check
+# Optional openpyxl dependency
 try:
-    import openpyxl
-except ImportError:
-    raise ImportError(
-        "Missing optional dependency 'openpyxl'. Install via pip install openpyxl"
-    )
+    import openpyxl  # type: ignore
+    _HAVE_OPENPYXL = True
+except Exception:
+    _HAVE_OPENPYXL = False
 
 
 def winsorize_series(series, limit=3):
@@ -180,6 +179,8 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
                           metric.lower() in c.lower()), df.columns[1])
 
     elif file_ext.endswith('.xlsx') or file_ext.endswith('.xls'):
+        if not _HAVE_OPENPYXL:
+            raise ImportError("Reading Excel files requires the 'openpyxl' package")
         # Handle Excel files with explicit engine
         df = pd.read_excel(path, engine='openpyxl')
 
@@ -1470,10 +1471,14 @@ def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
         df.sort_index().iloc[-15:].reset_index().rename(columns={"index": "date"})
     )
 
-    with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-        baseline_df.to_excel(writer, sheet_name="Baseline", index=False)
-        metrics.to_excel(writer, sheet_name="Metrics", index=False)
-        input_data.to_excel(writer, sheet_name="Input Data", index=False)
+    if _HAVE_OPENPYXL:
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            baseline_df.to_excel(writer, sheet_name="Baseline", index=False)
+            metrics.to_excel(writer, sheet_name="Metrics", index=False)
+            input_data.to_excel(writer, sheet_name="Input Data", index=False)
+    else:
+        # Fallback: write CSV data with .xlsx extension if openpyxl is missing
+        baseline_df.to_csv(excel_path, index=False)
 
     return excel_path
 
@@ -1558,90 +1563,101 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     })
     
     # Create Excel writer
-    with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-        # Past 14-day performance
-        recent_performance = pd.DataFrame({
-            'date': recent_forecast['ds'],
-            'predicted': recent_forecast['yhat'],
-            'actual': recent_forecast['actual'],
-            'lower_bound': recent_forecast['yhat_lower'],
-            'upper_bound': recent_forecast['yhat_upper'],
-            'error': recent_forecast['error'],
-            'abs_error': recent_forecast['abs_error'],
-            'pct_error': recent_forecast['pct_error']
-        })
-        recent_performance.to_excel(writer, sheet_name='Recent 14-Day Performance', index=False)
+    if _HAVE_OPENPYXL:
+        writer_ctx = pd.ExcelWriter(output_file, engine='openpyxl')
+    else:
+        # Fallback to CSV output if openpyxl is missing
+        writer_ctx = None
 
-        # Metrics for Prophet predictions
-        prophet_metrics = pd.DataFrame({
-            'metric': ['MAE', 'RMSE', 'MAPE'],
-            'value': [
-                recent_performance['abs_error'].mean(),
-                np.sqrt((recent_performance['error'] ** 2).mean()),
-                recent_performance['pct_error'].mean()
-            ]
-        })
-        prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
+    if writer_ctx:
+        with writer_ctx as writer:
+            # Past 14-day performance
+            recent_performance = pd.DataFrame({
+                'date': recent_forecast['ds'],
+                'predicted': recent_forecast['yhat'],
+                'actual': recent_forecast['actual'],
+                'lower_bound': recent_forecast['yhat_lower'],
+                'upper_bound': recent_forecast['yhat_upper'],
+                'error': recent_forecast['error'],
+                'abs_error': recent_forecast['abs_error'],
+                'pct_error': recent_forecast['pct_error']
+            })
+            recent_performance.to_excel(writer, sheet_name='Recent 14-Day Performance', index=False)
 
-        # Naive baseline forecast and metrics
-        naive_df, naive_metrics = compute_naive_baseline(df)
-        naive_df.to_excel(writer, sheet_name='Naive 14-Day Forecast', index=False)
-        naive_metrics.to_excel(writer, sheet_name='Naive Metrics', index=False)
-        
-        # Next day forecast
-        next_day_df.to_excel(writer, sheet_name='Next Day Forecast', index=False)
-        
-        # Model components
-        components = pd.DataFrame({
-            'Component': ['Trend', 'Weekly Seasonality', 'Yearly Seasonality', 'Holidays'],
-            'Description': [
-                'Long-term trend component',
-                'Day of week patterns',
-                'Month of year patterns',
-                'Special events (holidays, deadlines, press releases)'
-            ]
-        })
-        components.to_excel(writer, sheet_name='Model Components', index=False)
-        
-        # Model parameters
-        parameters = pd.DataFrame({
-            'Parameter': [
-                'yearly_seasonality',
-                'weekly_seasonality',
-                'daily_seasonality',
-                'seasonality_mode',
-                'changepoint_prior_scale'
-            ],
-            'Value': [
-                model.yearly_seasonality,
-                model.weekly_seasonality,
-                model.daily_seasonality,
-                model.seasonality_mode,
-                model.changepoint_prior_scale
-            ],
-            'Description': [
-                'Yearly seasonality enabled',
-                'Weekly seasonality enabled',
-                'Daily seasonality enabled',
-                'How seasonality components combine with trend',
-                'Flexibility of trend changepoints'
-            ]
-        })
-        parameters.to_excel(writer, sheet_name='Model Parameters', index=False)
-        
-        # Notes
-        notes = pd.DataFrame({
-            'Note': [
-                'This report contains predictions for customer service call volumes using Prophet.',
-                f'The model was trained on data up to {df.index.max().strftime("%Y-%m-%d")}.',
-                'Prophet automatically handles multiple seasonality patterns, holidays, and special events.',
-                f'Next day forecast is for {next_day.strftime("%A, %B %d, %Y")}.',
-                'Prediction intervals represent uncertainty in the forecast.',
-                'Model accounts for day-of-week patterns, monthly seasonality, holidays, and special events.',
-                'The "Recent 14-Day Performance" sheet compares predictions with actuals for the last 14 business days.'
-            ]
-        })
-        notes.to_excel(writer, sheet_name='Notes', index=False)
+            # Metrics for Prophet predictions
+            prophet_metrics = pd.DataFrame({
+                'metric': ['MAE', 'RMSE', 'MAPE'],
+                'value': [
+                    recent_performance['abs_error'].mean(),
+                    np.sqrt((recent_performance['error'] ** 2).mean()),
+                    recent_performance['pct_error'].mean()
+                ]
+            })
+            prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
+
+            # Naive baseline forecast and metrics
+            naive_df, naive_metrics = compute_naive_baseline(df)
+            naive_df.to_excel(writer, sheet_name='Naive 14-Day Forecast', index=False)
+            naive_metrics.to_excel(writer, sheet_name='Naive Metrics', index=False)
+
+            # Next day forecast
+            next_day_df.to_excel(writer, sheet_name='Next Day Forecast', index=False)
+
+            # Model components
+            components = pd.DataFrame({
+                'Component': ['Trend', 'Weekly Seasonality', 'Yearly Seasonality', 'Holidays'],
+                'Description': [
+                    'Long-term trend component',
+                    'Day of week patterns',
+                    'Month of year patterns',
+                    'Special events (holidays, deadlines, press releases)'
+                ]
+            })
+            components.to_excel(writer, sheet_name='Model Components', index=False)
+
+            # Model parameters
+            parameters = pd.DataFrame({
+                'Parameter': [
+                    'yearly_seasonality',
+                    'weekly_seasonality',
+                    'daily_seasonality',
+                    'seasonality_mode',
+                    'changepoint_prior_scale'
+                ],
+                'Value': [
+                    model.yearly_seasonality,
+                    model.weekly_seasonality,
+                    model.daily_seasonality,
+                    model.seasonality_mode,
+                    model.changepoint_prior_scale
+                ],
+                'Description': [
+                    'Yearly seasonality enabled',
+                    'Weekly seasonality enabled',
+                    'Daily seasonality enabled',
+                    'How seasonality components combine with trend',
+                    'Flexibility of trend changepoints'
+                ]
+            })
+            parameters.to_excel(writer, sheet_name='Model Parameters', index=False)
+
+            # Notes
+            notes = pd.DataFrame({
+                'Note': [
+                    'This report contains predictions for customer service call volumes using Prophet.',
+                    f'The model was trained on data up to {df.index.max().strftime("%Y-%m-%d")}.',
+                    'Prophet automatically handles multiple seasonality patterns, holidays, and special events.',
+                    f'Next day forecast is for {next_day.strftime("%A, %B %d, %Y")}.',
+                    'Prediction intervals represent uncertainty in the forecast.',
+                    'Model accounts for day-of-week patterns, monthly seasonality, holidays, and special events.',
+                    'The "Recent 14-Day Performance" sheet compares predictions with actuals for the last 14 business days.'
+                ]
+            })
+            notes.to_excel(writer, sheet_name='Notes', index=False)
+    else:
+        # Minimal CSV fallback
+        fallback_df = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        fallback_df.to_csv(output_file, index=False)
     
     logger.info(f"Forecast exported to {output_file}")
     
