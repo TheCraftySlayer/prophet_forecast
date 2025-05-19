@@ -37,6 +37,15 @@ export USE_REAL_LIBS=1  # Unix
 ```
 
 This variable is already set in the provided `run forecast.bat` script.
+If the batch file does not run when double-clicked, ensure it uses Windows
+line endings (CRLF). Some Git tools may check out the repository with Unix
+line endings, which can cause `cmd.exe` to ignore the script. You can convert
+the file with a tool like `unix2dos` or by opening and resaving it in a
+Windows text editor.
+
+If the console window opens briefly and then closes, run the batch file from an
+open Command Prompt so that any error messages stay visible. This typically
+means Python is not installed or isn't on your `PATH`.
 
 ## Usage
 
