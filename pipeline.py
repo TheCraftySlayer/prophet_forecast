@@ -4,13 +4,17 @@ try:
 except Exception:  # pragma: no cover - optional dependency may be missing
     import yaml
     YAML = None
-from prophet_analysis import (
+from data_preparation import (
     prepare_data,
     prepare_prophet_data,
+    create_prophet_holidays,
+)
+from modeling import (
     train_prophet_model,
     evaluate_prophet_model,
     tune_prophet_hyperparameters,
-    create_prophet_holidays,
+)
+from prophet_analysis import (
     export_prophet_forecast,
     export_baseline_forecast,
 )
@@ -31,8 +35,8 @@ def load_config(path: Path) -> dict:
             return yaml.safe_load(f)
 
 
-def pipeline(config_path: Path):
-    cfg = load_config(config_path)
+def run_forecast(cfg: dict) -> None:
+    """Execute the forecasting pipeline using a configuration dictionary."""
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 
@@ -96,6 +100,13 @@ def pipeline(config_path: Path):
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
     export_prophet_forecast(model, forecast, df, out_dir)
     export_baseline_forecast(df, out_dir)
+
+
+def pipeline(config_path: Path) -> None:
+    """Load configuration from ``config_path`` and run the forecast pipeline."""
+    cfg = load_config(config_path)
+    run_forecast(cfg)
+
 
 
 if __name__ == "__main__":

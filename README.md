@@ -44,27 +44,15 @@ Windows text editor.
 
 ## Usage
 
-Run the analysis by providing the three input CSV files and an output directory:
+Run the analysis by providing the three input CSV files and an optional output directory:
 
 ```bash
 python prophet_analysis.py calls.csv visitors.csv queries.csv output_dir
 ```
 
-### Optional arguments
-
-- `--handle-outliers METHOD` – handle detected outliers using `winsorize`, `prediction_replace` or `interpolate`.
-- `--use-transformation BOOL` – apply a `log1p` transformation to the target before modeling and back‑transform predictions (`true` or `false`).
-- `--skip-feature-importance` – skip the feature importance analysis step.
-- `--cross-validate` – run full Prophet cross-validation after training.
-- `--likelihood` – choose the likelihood for the underlying Stan model (`normal`, `poisson`, or `neg_binomial`).
-
-For example:
-
-```bash
-python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results \
-    --handle-outliers winsorize --use-transformation false --cross-validate \
-    --likelihood poisson
-```
+The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
+parameters continue to be read from `config.yaml`. The command simply overrides
+the input and output paths before calling the pipeline.
 
 ### Data exclusions
 
