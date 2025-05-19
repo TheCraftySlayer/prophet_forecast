@@ -104,6 +104,38 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 if _USE_REAL_LIBS and _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
+# Optional CmdStanPy dependency to locate tbb runtime
+try:
+    from cmdstanpy.utils import cmdstan_path
+except Exception:  # pragma: no cover - cmdstanpy may be missing
+    cmdstan_path = None
+
+_TBB_DLL_DIR_CACHE: str | None = None
+
+
+def _get_tbb_dll_dir() -> str | None:
+    """Return directory containing ``tbb.dll`` if available."""
+    global _TBB_DLL_DIR_CACHE
+    if _TBB_DLL_DIR_CACHE is not None:
+        return _TBB_DLL_DIR_CACHE
+    if cmdstan_path is None:
+        return None
+    try:
+        root = Path(cmdstan_path())
+        for dll in root.rglob("tbb.dll"):
+            _TBB_DLL_DIR_CACHE = str(dll.parent)
+            break
+    except Exception:  # pragma: no cover - path search errors
+        _TBB_DLL_DIR_CACHE = None
+    return _TBB_DLL_DIR_CACHE
+
+
+def _ensure_tbb_on_path() -> None:
+    """Add ``tbb.dll`` directory to ``PATH`` once if found."""
+    dir_path = _get_tbb_dll_dir()
+    if dir_path and dir_path not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = os.environ["PATH"] + os.pathsep + dir_path
+
 
 def winsorize_series(series, limit=3):
     """Symmetric winsorization using mean ± limit*std."""
@@ -141,6 +173,7 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
         Path to the compiled model on success, otherwise ``None``.
     """
     logger = logging.getLogger(__name__)
+    _ensure_tbb_on_path()
 
     if not _HAVE_PROPHET:
         logger.warning("Prophet package not installed; cannot compile custom Stan model")
@@ -221,7 +254,8 @@ def tune_prophet_hyperparameters(prophet_df):
             )
             
             # Fit on training data only
-            m.fit(train)
+            _ensure_tbb_on_path()
+            _fit_prophet_with_fallback(m, train)
             
             # Predict on held-out period
             future = m.make_future_dataframe(periods=30)
@@ -629,8 +663,24 @@ def prepare_prophet_data(df):
     """
     # Create Prophet DataFrame
     prophet_df = df.reset_index().rename(columns={'index': 'ds', 'call_count': 'y'})
-    
+
     return prophet_df
+
+
+def _fit_prophet_with_fallback(model, df) -> None:
+    """Fit Prophet model with LBFGS then fall back to Newton once."""
+    logger = logging.getLogger(__name__)
+    try:
+        model.fit(df)
+        return
+    except Exception as exc:  # pragma: no cover - fit may fail
+        logger.warning("LBFGS optimization failed: %s; retrying with Newton", exc)
+    try:
+        model.fit(df, algorithm="Newton")
+        logger.info("Model fit succeeded with Newton optimizer")
+    except Exception:
+        logger.error("Newton optimization also failed", exc_info=True)
+        raise
 
 
 def train_prophet_model(
@@ -737,7 +787,8 @@ def train_prophet_model(
     
     # Fit the model
     logger.info("Fitting Prophet model")
-    model.fit(prophet_df)
+    _ensure_tbb_on_path()
+    _fit_prophet_with_fallback(model, prophet_df)
     
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
@@ -889,7 +940,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                 prior = 10 if regressor == 'post_policy' else reg_prior_scale
                 model.add_regressor(regressor, mode='additive', prior_scale=prior)
         
-        model.fit(model_prophet_df)
+        _ensure_tbb_on_path()
+        _fit_prophet_with_fallback(model, model_prophet_df)
         future = model.make_future_dataframe(periods=30)
         
         # Add regressor values to future DataFrame - FIXED CODE HERE
@@ -1236,7 +1288,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
             if feature.endswith('_flag') and feature in prophet_df.columns:
                 model_copy.add_regressor(feature, mode='additive', prior_scale=reg_prior_scale)
         
-        model_copy.fit(train_df)
+        _ensure_tbb_on_path()
+        _fit_prophet_with_fallback(model_copy, train_df)
         future = model_copy.make_future_dataframe(periods=future_periods)
         
         # Add regressor values to future DataFrame
@@ -1288,7 +1341,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     if other_feature in test_df.columns:
                         test_model.add_regressor(other_feature, mode='additive', prior_scale=reg_prior_scale)
                 
-                test_model.fit(test_df)
+                _ensure_tbb_on_path()
+                _fit_prophet_with_fallback(test_model, test_df)
                 
                 if quick_mode:
                     # Use the simplified validation approach
@@ -1297,7 +1351,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     test_subset = test_df.iloc[train_size:].copy()
                     future_periods = len(test_subset)
                     
-                    test_model.fit(train_df)
+                    _ensure_tbb_on_path()
+                    _fit_prophet_with_fallback(test_model, train_df)
                     future = test_model.make_future_dataframe(periods=future_periods)
                     
                     # Add regressor values to future DataFrame
@@ -1343,7 +1398,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     test_subset = prophet_df.iloc[train_size:].copy()
                     future_periods = len(test_subset)
                     
-                    test_model.fit(train_df)
+                    _ensure_tbb_on_path()
+                    _fit_prophet_with_fallback(test_model, train_df)
                     future = test_model.make_future_dataframe(periods=future_periods)
                     
                     # Add regressor values to future DataFrame
