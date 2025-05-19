@@ -1242,7 +1242,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         # Add regressor values to future DataFrame
         for feature in features:
             if feature.endswith('_flag') and feature in prophet_df.columns:
-                future[feature] = prophet_df[feature].values[-future_periods:]
+                # Align predictor slice with target rows
+                future[feature] = test_df[feature].values
         
         forecast = model_copy.predict(future)
         
@@ -1302,7 +1303,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     # Add regressor values to future DataFrame
                     for other_feature in [f for f in features if f.endswith('_flag')]:
                         if other_feature in test_df.columns:
-                            future[other_feature] = test_df[other_feature].values[-future_periods:]
+                            future[other_feature] = test_subset[other_feature].values
                     
                     forecast = test_model.predict(future)
                     
@@ -1348,7 +1349,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     # Add regressor values to future DataFrame
                     for other_feature in [f for f in features if f.endswith('_flag')]:
                         if other_feature in prophet_df.columns:
-                            future[other_feature] = prophet_df[other_feature].values[-future_periods:]
+                            future[other_feature] = test_subset[other_feature].values
                     
                     forecast = test_model.predict(future)
                     
