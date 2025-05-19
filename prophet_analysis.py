@@ -89,6 +89,14 @@ try:
 except Exception:
     _HAVE_OPENPYXL = False
 
+# Optional Prophet serialization dependency
+try:
+    from prophet.serialize import model_to_json
+    _HAVE_SERIALIZE = True
+except Exception:  # pragma: no cover - optional dependency may be missing
+    _HAVE_SERIALIZE = False
+    model_to_json = None
+
 # Restore this directory in sys.path so local modules can be imported after the
 # heavy third-party libraries have been loaded.
 if _USE_REAL_LIBS and _THIS_DIR not in sys.path:
@@ -1637,7 +1645,12 @@ def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if df.empty:
+        raise ValueError("Input DataFrame is empty; no baseline forecast to export.")
+
     baseline_df, metrics = compute_naive_baseline(df)
+    if baseline_df.empty:
+        raise ValueError("Computed baseline forecast is empty; nothing to export.")
 
     csv_path = output_dir / "baseline_forecast.csv"
     baseline_df.to_csv(csv_path, index=False)
@@ -1676,6 +1689,9 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     """
     logger = logging.getLogger(__name__)
     logger.info("Exporting Prophet forecast to Excel")
+
+    if forecast.empty:
+        raise ValueError("Forecast DataFrame is empty; nothing to export.")
     
     # Create output directory if it doesn't exist
     output_dir.mkdir(exist_ok=True)
@@ -2234,11 +2250,14 @@ def main(argv=None):
             logger.warning(f"Ensemble model creation failed: {str(e)}. Using single model forecast.")
             # Keep using the forecast from the single model
 
-        # Save Prophet model to disk
+        # Save Prophet model to disk using JSON serialization
         logger.info("Saving Prophet model to disk")
         try:
-            with open(output_dir / "prophet_model.pkl", 'wb') as f:
-                pickle.dump(model, f)
+            if not _HAVE_SERIALIZE:
+                raise RuntimeError("prophet.serialize not available")
+            model_json = model_to_json(model)
+            with open(output_dir / "prophet_model.json", "w") as f:
+                f.write(model_json)
         except Exception as e:
             logger.warning(f"Failed to save model: {str(e)}")
 
