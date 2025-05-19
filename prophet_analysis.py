@@ -532,6 +532,11 @@ def prepare_data(call_path,
     policy_start = pd.Timestamp('2025-05-01')
     df['post_policy'] = (df.index >= policy_start).astype(int)
 
+    # Flag for targeted campaign between 2025-05-01 and 2025-06-02
+    campaign_start = pd.Timestamp('2025-05-01')
+    campaign_end = pd.Timestamp('2025-06-02')
+    df['campaign_flag'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
+
     event_mask = (df['federal_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
     df['outlier_flag'] = ((z.abs() > 3) & ~event_mask).astype(int)
@@ -546,19 +551,19 @@ def prepare_data(call_path,
     # Feature engineering: lags and rolling stats for potential use as regressors
     logger.info("Creating lag and rolling features")
     for lag in [1, 3, 7]:
-        df[f"call_lag{lag}"] = df["call_count"].shift(lag).fillna(0).astype(
-            float)
+        df[f"call_lag{lag}"] = df["call_count"].shift(lag).fillna(0).astype(float)
     df["call_ma7"] = df["call_count"].rolling(7, min_periods=1).mean()
-    df["call_std7"] = df["call_count"].rolling(
-        7, min_periods=1).std().fillna(0).astype(float)
+    df["call_std7"] = df["call_count"].rolling(7, min_periods=1).std().fillna(0).astype(float)
 
-    for lag in [1, 3]:
-        df[f"visit_lag{lag}"] = df["visit_count"].shift(lag).fillna(0).astype(
-            float)
-    df["visit_ma7"] = df["visit_count"].rolling(7, min_periods=1).mean()
-    df["visit_std7"] = df["visit_count"].rolling(
-        7, min_periods=1).std().fillna(0).astype(float)
+    df["visit_ma3"] = df["visit_count"].rolling(3, min_periods=1).mean()
     df["chatbot_ma3"] = df["chatbot_count"].rolling(3, min_periods=1).mean()
+
+    # Drop problematic flat-line period in May 2025
+    flat_start = pd.Timestamp("2025-05-06")
+    flat_end = pd.Timestamp("2025-05-13")
+    mask_flat = (df.index >= flat_start) & (df.index <= flat_end)
+    if mask_flat.any():
+        df = df.loc[~mask_flat]
 
 
 
@@ -569,12 +574,20 @@ def prepare_data(call_path,
     # Create regressors dataframe for Prophet
     regressors = df.copy()
 
+    important_regs = [
+        "visit_ma3",
+        "chatbot_count",
+        "deadline_flag",
+        "notice_flag",
+        "federal_holiday_flag",
+        "post_policy",
+        "campaign_flag",
+    ]
+    regressors = regressors[important_regs]
+
     if scale_features:
-        # Standardize numeric regressors (z-score) except binary flags
-        for col in regressors.columns:
-            if col == "call_count" or col.endswith("_flag") or col == "post_policy":
-                continue
-            if np.issubdtype(regressors[col].dtype, np.number):
+        for col in ["visit_ma3", "chatbot_count"]:
+            if col in regressors.columns:
                 mean = regressors[col].mean()
                 std = regressors[col].std()
                 if std != 0:
@@ -715,16 +728,17 @@ def train_prophet_model(
 
     default_params = {
         'yearly_seasonality': False,
-        'weekly_seasonality': True,
+        'weekly_seasonality': False,
         'daily_seasonality': False,
-        'seasonality_mode': 'multiplicative',
+        'seasonality_mode': 'additive',
         'n_changepoints': 25,
-        'changepoint_prior_scale': 0.05,
+        'changepoint_prior_scale': 0.2,
         'changepoints': [pd.Timestamp('2025-05-01')],
-        'seasonality_prior_scale': 0.05,
+        'seasonality_prior_scale': 0.01,
         'holidays_prior_scale': 5,
         'holidays': holidays_df,
         'mcmc_samples': 0,
+        'uncertainty_samples': 300,
         'growth': 'linear'
     }
 
@@ -770,8 +784,9 @@ def train_prophet_model(
     # Restrict regressors to mitigate collinearity
     # Use standardized raw visitor and chatbot counts
     important_regressors = [
-        'visit_count',
+        'visit_ma3',
         'chatbot_count',
+        'campaign_flag',
         'post_policy',
         'notice_flag',
         'deadline_flag',
@@ -793,18 +808,20 @@ def train_prophet_model(
     
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
-    future = model.make_future_dataframe(periods=future_periods)
+    future = model.make_future_dataframe(periods=future_periods, freq="B")
     if default_params.get('growth') == 'logistic':
         future['cap'] = max_calls * 1.1
         future['floor'] = 0
 
     # Build full daily calendar covering the forecast horizon
-    full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='D')
+    full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='B')
     future_regs = pd.DataFrame(index=full_dates)
 
     # Required regressors only
     future_regs['post_policy'] = (future_regs.index >= pd.Timestamp('2025-05-01')).astype(int)
-    future_regs['visit_count'] = 0
+    future_regs['campaign_flag'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
+                                    (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
+    future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
@@ -918,8 +935,9 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     # Add same regressors to all models
     # Use the reduced regressor set to avoid collinearity
     important_regressors = [
-        'visit_count',
+        'visit_ma3',
         'chatbot_count',
+        'campaign_flag',
         'post_policy',
         'notice_flag',
         'deadline_flag',
@@ -1262,8 +1280,9 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         'federal_holiday_flag',
         'deadline_flag',
         'notice_flag',
-        'visit_count',
+        'visit_ma3',
         'chatbot_count',
+        'campaign_flag',
         'yearly_seasonality',
         'weekly_seasonality'
     ]
@@ -1951,6 +1970,8 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         parallel="processes",
     )
 
+    df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
+
     if log_transform:
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
             if col in df_cv.columns:
@@ -2018,8 +2039,11 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         'lb_pvalue': lb['lb_pvalue']
     })
 
-    if mae > 60 or (mape == mape and mape > 20):
-        logger.warning('Model performance below acceptance thresholds.')
+    mean_calls = df_cv['y'].mean()
+    if mae > 0.15 * mean_calls:
+        logger.warning('MAE exceeds 15% of mean call volume.')
+    if mape == mape and mape > 20:
+        logger.warning('MAPE exceeds 20%.')
     if autocorr_flag:
         logger.warning('Autocorrelation detected in residuals.')
 

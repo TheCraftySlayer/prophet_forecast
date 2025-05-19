@@ -4,18 +4,19 @@ data:
   queries: queries.csv
 output: prophet_output
 model:
-  seasonality_mode: multiplicative
-  seasonality_prior_scale: 0.05
+  seasonality_mode: additive
+  seasonality_prior_scale: 0.01
   holidays_prior_scale: 5
-  changepoint_prior_scale: 0.05
+  changepoint_prior_scale: 0.2
   regressor_prior_scale: 0.05
   growth: linear
   mcmc_samples: 0
-  weekly_seasonality: true
+  weekly_seasonality: false
   yearly_seasonality: false
   daily_seasonality: false
   likelihood: normal
+  uncertainty_samples: 300
 cross_validation:
-  initial: '270 days'
-  period: '14 days'
+  initial: '365 days'
+  period: '30 days'
   horizon: '30 days'
