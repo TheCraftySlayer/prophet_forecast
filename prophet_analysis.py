@@ -28,6 +28,8 @@ _USE_REAL_LIBS = os.getenv("USE_REAL_LIBS") == "1"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _USE_REAL_LIBS and _THIS_DIR in sys.path:
     sys.path.remove(_THIS_DIR)
+import matplotlib
+matplotlib.use("Agg")  # ensure headless backend for multiprocessing safety
 import pandas as pd
 import numpy as np
 import itertools
@@ -272,7 +274,7 @@ def tune_prophet_hyperparameters(prophet_df):
                 initial='180 days',
                 period='30 days',
                 horizon='30 days',
-                parallel='processes'
+                parallel='threads'
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
             df_p = performance_metrics(df_cv, rolling_window=1)
@@ -1002,6 +1004,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
             if regressor in model_prophet_df.columns:
                 # Initialize the column with zeros first (no NaNs)
                 future[regressor] = 0
+                future[regressor] = future[regressor].astype(float)
                 
                 # Copy known values to future DataFrame
                 for j, ds in enumerate(future['ds']):
@@ -1287,7 +1290,7 @@ def cross_validate_prophet(model, df, periods=14, horizon='30 days', initial='27
         initial=initial,
         period=f'{periods} days',
         horizon=horizon,
-        parallel="processes",
+        parallel="threads",
     )
     df_p = performance_metrics(df_cv)
     return df_p['rmse'].mean()
@@ -1348,10 +1351,11 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         future = model_copy.make_future_dataframe(periods=future_periods)
         
         # Add regressor values to future DataFrame
+        start_idx = len(future) - future_periods
         for feature in features:
             if feature.endswith('_flag') and feature in prophet_df.columns:
                 # Align predictor slice with target rows
-                future[feature] = test_df[feature].values
+                future.loc[start_idx:, feature] = test_df[feature].values
         
         forecast = model_copy.predict(future)
         
@@ -1413,9 +1417,10 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     future = test_model.make_future_dataframe(periods=future_periods)
                     
                     # Add regressor values to future DataFrame
+                    start_idx_sub = len(future) - future_periods
                     for other_feature in [f for f in features if f.endswith('_flag')]:
                         if other_feature in test_df.columns:
-                            future[other_feature] = test_subset[other_feature].values
+                            future.loc[start_idx_sub:, other_feature] = test_subset[other_feature].values
                     
                     forecast = test_model.predict(future)
                     
@@ -1462,9 +1467,10 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     future = test_model.make_future_dataframe(periods=future_periods)
                     
                     # Add regressor values to future DataFrame
+                    start_idx_sub = len(future) - future_periods
                     for other_feature in [f for f in features if f.endswith('_flag')]:
                         if other_feature in prophet_df.columns:
-                            future[other_feature] = test_subset[other_feature].values
+                            future.loc[start_idx_sub:, other_feature] = test_subset[other_feature].values
                     
                     forecast = test_model.predict(future)
                     
@@ -2011,7 +2017,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
             initial=initial,
             period=period,
             horizon=horizon,
-            parallel="processes",
+            parallel="threads",
         )
         df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
         residuals = df_cv['y'] - df_cv['yhat']
