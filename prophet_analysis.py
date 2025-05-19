@@ -26,8 +26,12 @@ import sys
 # instead of the lightweight stub modules bundled with the repository.
 _USE_REAL_LIBS = os.getenv("USE_REAL_LIBS") == "1"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-if _USE_REAL_LIBS and _THIS_DIR in sys.path:
-    sys.path.remove(_THIS_DIR)
+if _USE_REAL_LIBS:
+    sys.path = [
+        p
+        for p in sys.path
+        if os.path.abspath(p or os.getcwd()) != _THIS_DIR
+    ]
 import matplotlib
 matplotlib.use("Agg")  # ensure headless backend for multiprocessing safety
 import pandas as pd
