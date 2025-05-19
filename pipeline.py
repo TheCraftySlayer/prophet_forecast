@@ -8,9 +8,12 @@ import sys
 _USE_REAL_LIBS = os.getenv("USE_REAL_LIBS") == "1"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _USE_REAL_LIBS:
-    sys.path = [
-        p for p in sys.path if os.path.abspath(p or os.getcwd()) != _THIS_DIR
-    ]
+    # When using the real third-party libraries, ensure this repository's
+    # directory is searched **after** the standard site-packages so our stub
+    # modules do not shadow the installed packages.  Remove the path first and
+    # append it to the end of ``sys.path``.
+    sys.path = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _THIS_DIR]
+    sys.path.append(_THIS_DIR)
 try:
     from ruamel.yaml import YAML
 except Exception:  # pragma: no cover - optional dependency may be missing
