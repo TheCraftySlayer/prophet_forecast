@@ -110,8 +110,13 @@ class Series:
         return Series([abs(v) if v is not None else None for v in self.data], self.index, self.name)
 
     def mean(self):
-        vals = [v for v in self.data if v is not None]
-        return sum(vals) / len(vals) if vals else float('nan')
+        # Ignore ``None`` and ``NaN`` values when computing the mean to mimic
+        # pandas behaviour.
+        vals = [
+            v for v in self.data
+            if v is not None and not (isinstance(v, float) and math.isnan(v))
+        ]
+        return sum(vals) / len(vals) if vals else float("nan")
 
     def shift(self, periods=1):
         if periods > 0:
