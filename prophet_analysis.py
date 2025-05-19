@@ -120,9 +120,9 @@ def tune_prophet_hyperparameters(prophet_df):
     
     # Expanded parameter grid for broader search
     param_grid = {
-        'changepoint_prior_scale': [1.5, 2.0, 3.0],
+        'changepoint_prior_scale': [0.05],
         'seasonality_prior_scale': [1.0, 10.0, 20.0, 30.0],
-        'holidays_prior_scale': [1.0, 5.0, 10.0]
+        'holidays_prior_scale': [5]
     }
     
     # Generate all combinations
@@ -176,7 +176,7 @@ def tune_prophet_hyperparameters(prophet_df):
     # Find best parameters
     if not rmses or all(np.isinf(rmses)):
         logger.warning("All hyperparameter combinations failed, using defaults")
-        best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 10.0}
+        best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 5}
     else:
         best_params = all_params[np.argmin(rmses)]
     
@@ -587,16 +587,19 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         'daily_seasonality': False,
         'seasonality_mode': 'additive',
         'n_changepoints': 25,
-        'changepoint_prior_scale': 1.5,
+        'changepoint_prior_scale': 0.05,
         'changepoints': [pd.Timestamp('2025-05-01')],
         'seasonality_prior_scale': 0.05,
-        'holidays_prior_scale': 20,
+        'holidays_prior_scale': 5,
         'holidays': holidays_df,
         'mcmc_samples': 0,
         'growth': 'linear'
     }
 
+    reg_prior_scale = 0.05
+
     if model_params:
+        reg_prior_scale = model_params.pop('regressor_prior_scale', reg_prior_scale)
         default_params.update(model_params)
 
 
@@ -626,7 +629,7 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         if regressor == 'post_policy':
             model.add_regressor(regressor, mode='additive', prior_scale=10)
         else:
-            model.add_regressor(regressor, mode='additive')
+            model.add_regressor(regressor, mode='additive', prior_scale=reg_prior_scale)
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -720,7 +723,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         weekly_seasonality=True,
         daily_seasonality=False,
         seasonality_mode='additive',
-        changepoint_prior_scale=1.5
+        changepoint_prior_scale=0.05
     )
     
     # More flexible model
@@ -729,7 +732,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         weekly_seasonality=True,
         daily_seasonality=False,
         seasonality_mode='additive',
-        changepoint_prior_scale=2.0
+        changepoint_prior_scale=0.05
     )
     
     # More rigid model
@@ -738,7 +741,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         weekly_seasonality=True,
         daily_seasonality=False,
         seasonality_mode='additive',
-        changepoint_prior_scale=3.0
+        changepoint_prior_scale=0.05
     )
     
     models = [model1, model2, model3]
@@ -755,6 +758,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     ]
     
     # Add regressors to each model and fit them
+    reg_prior_scale = 0.05
     forecasts = []
     for i, model in enumerate(models):
         logger.info(f"Training ensemble model {i+1}/{len(models)}")
@@ -766,7 +770,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                 model_prophet_df[regressor] = regressors_df[regressor].values
                 # Add to model
                 # Use additive mode for stability
-                model.add_regressor(regressor, mode='additive')
+                prior = 10 if regressor == 'post_policy' else reg_prior_scale
+                model.add_regressor(regressor, mode='additive', prior_scale=prior)
         
         model.fit(model_prophet_df)
         future = model.make_future_dataframe(periods=30)
@@ -1077,6 +1082,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
     """
     logger = logging.getLogger(__name__)
     logger.info("Analyzing feature importance (quick_mode=%s)", quick_mode)
+    reg_prior_scale = 0.05
     
     # Create versions of the data with one feature removed at a time
     features = [
@@ -1109,7 +1115,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         # Add regressors to the base model
         for feature in features:
             if feature.endswith('_flag') and feature in prophet_df.columns:
-                model_copy.add_regressor(feature, mode='additive')
+                model_copy.add_regressor(feature, mode='additive', prior_scale=reg_prior_scale)
         
         model_copy.fit(train_df)
         future = model_copy.make_future_dataframe(periods=future_periods)
@@ -1160,7 +1166,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add remaining regressors
                 for other_feature in [f for f in features if f.endswith('_flag') and f != feature]:
                     if other_feature in test_df.columns:
-                        test_model.add_regressor(other_feature, mode='additive')
+                        test_model.add_regressor(other_feature, mode='additive', prior_scale=reg_prior_scale)
                 
                 test_model.fit(test_df)
                 
@@ -1208,7 +1214,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add regressors
                 for other_feature in [f for f in features if f.endswith('_flag')]:
                     if other_feature in prophet_df.columns:
-                        test_model.add_regressor(other_feature, mode='additive')
+                        test_model.add_regressor(other_feature, mode='additive', prior_scale=reg_prior_scale)
                 
                 if quick_mode:
                     # Use the simplified validation approach
@@ -2001,7 +2007,7 @@ def main(argv=None):
             best_params = tune_prophet_hyperparameters(prophet_df)
         except Exception as e:
             logger.warning(f"Hyperparameter tuning failed: {str(e)}. Using defaults.")
-            best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 10.0}
+            best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 5}
         
         # Create holidays DataFrame
         holiday_dates = [
