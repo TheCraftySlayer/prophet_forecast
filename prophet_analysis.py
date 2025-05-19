@@ -561,7 +561,14 @@ def prepare_prophet_data(df):
     return prophet_df
 
 
-def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=30, model_params=None):
+def train_prophet_model(
+    prophet_df,
+    holidays_df,
+    regressors_df,
+    future_periods=30,
+    model_params=None,
+    log_transform=False,
+):
     """
     Train Prophet model with custom components
     
@@ -602,6 +609,11 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         reg_prior_scale = model_params.pop('regressor_prior_scale', reg_prior_scale)
         default_params.update(model_params)
 
+
+    prophet_df = prophet_df.copy()
+
+    if log_transform:
+        prophet_df['y'] = np.log1p(prophet_df['y'])
 
     prophet_df['cap'] = max_calls * 1.1
     prophet_df['floor'] = 0
@@ -674,7 +686,15 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     # Make forecast
     logger.info("Making forecast")
     forecast = model.predict(future)
-    forecast[['yhat', 'yhat_lower', 'yhat_upper']] = forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
+
+    if log_transform:
+        for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+            if col in forecast:
+                forecast[col] = np.expm1(forecast[col])
+
+    forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
+        forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
+    )
 
     # Enforce zero forecast on weekends and holidays
     closed_mask = (forecast['ds'].dt.dayofweek >= 5) | (forecast['ds'].isin(holidays_df['ds']))
@@ -1741,7 +1761,7 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     return output_file
 
 
-def evaluate_prophet_model(model, prophet_df, cv_params=None):
+def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=False):
     """Cross‑validate the Prophet model and report MAE, RMSE, and MAPE."""
 
     if cv_params is None:
@@ -1764,6 +1784,11 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None):
         horizon=horizon,
         parallel="processes",
     )
+
+    if log_transform:
+        for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
+            if col in df_cv.columns:
+                df_cv[col] = np.expm1(df_cv[col])
 
     # Propagate horizon column if not provided by cross_validation
     if 'horizon' not in df_cv.columns and {'ds', 'cutoff'} <= set(df_cv.columns):
@@ -2100,18 +2125,14 @@ def main(argv=None):
         holidays_df = create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates)
         holidays_df = enhance_holiday_handling(holidays_df)
 
-        # Apply log transformation if requested
-        if use_transformation:
-            logger.info("Applying log transformation to target variable")
-            prophet_df['y'] = np.log1p(prophet_df['y'])
-
         # Train Prophet model using tuned hyperparameters
         model, forecast, future = train_prophet_model(
             prophet_df,
             holidays_df,
             regressors,
             future_periods=30,
-            model_params=best_params
+            model_params=best_params,
+            log_transform=use_transformation,
         )
         
         # Try to create ensemble model, but continue with single model if it fails
@@ -2148,14 +2169,7 @@ def main(argv=None):
         else:
             logger.info("Skipping feature importance analysis as requested")
             
-        # Back-transform if needed
-        if use_transformation:
-            logger.info("Back-transforming forecast")
-            forecast['yhat'] = np.expm1(forecast['yhat'])
-            forecast['yhat_lower'] = np.expm1(forecast['yhat_lower'])
-            forecast['yhat_upper'] = np.expm1(forecast['yhat_upper'])
-            
-            logger.info(f"Forecast range after back-transformation: {forecast['yhat'].min():.2f} to {forecast['yhat'].max():.2f}")
+
 
         # Continue with the rest of the analysis functions
         try:
@@ -2180,7 +2194,11 @@ def main(argv=None):
             if run_cross_validation:
                 try:
                     logger.info("Evaluating model with cross-validation")
-                    df_cv, horizon_table, summary = evaluate_prophet_model(model, prophet_df)
+                    df_cv, horizon_table, summary = evaluate_prophet_model(
+                        model,
+                        prophet_df,
+                        log_transform=use_transformation,
+                    )
                     horizon_table.to_csv(output_dir / "cross_validation_metrics.csv", index=False)
                     summary.to_csv(output_dir / "cross_validation_summary.csv", index=False)
                 except Exception as e:

@@ -75,6 +75,7 @@ def pipeline(config_path: Path):
         regressors,
         future_periods=30,
         model_params=model_params,
+        log_transform=True,
     )
 
     cv_params = cfg.get('cross_validation', {})
@@ -82,6 +83,7 @@ def pipeline(config_path: Path):
         model,
         prophet_df,
         cv_params=cv_params,
+        log_transform=True,
     )
     summary.to_csv(out_dir / "summary.csv", index=False)
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)

@@ -49,7 +49,7 @@ python prophet_analysis.py calls.csv visitors.csv queries.csv output_dir
 ### Optional arguments
 
  - `--handle-outliers METHOD` – handle detected outliers using `winsorize`, `prediction_replace` or `interpolate`.
-- `--use-transformation BOOL` – apply a log transformation to the target before modeling (`true` or `false`).
+ - `--use-transformation BOOL` – apply a `log1p` transformation to the target before modeling and back‑transform predictions (`true` or `false`).
 - `--skip-feature-importance` – skip the feature importance analysis step.
 - `--cross-validate` – run full Prophet cross-validation after training.
 
@@ -67,6 +67,9 @@ training set. Any days with zero recorded calls are flagged and treated as
 missing values. Call volumes above the 99th percentile are winsorized to
 reduce the impact of extreme spikes. Additional dummy variables mark periods for
 notice mail-outs, assessment deadlines and nearby federal holidays.
+
+The modeling pipeline applies a `log1p` transform to the target series to
+stabilize variance and then back‑transforms predictions to the original scale.
 
 The results, including forecasts and plots, will be saved in the specified output directory.
 The exported Excel report now includes predictions for the previous 14 business days
