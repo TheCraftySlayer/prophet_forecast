@@ -146,6 +146,13 @@ def winsorize_series(series, limit=3):
     return series.clip(lower, upper)
 
 
+def winsorize_quantile(series, lower_q=0.01, upper_q=0.99):
+    """Winsorize a series using quantile thresholds."""
+    lower = series.quantile(lower_q)
+    upper = series.quantile(upper_q)
+    return series.clip(lower, upper)
+
+
 def drop_collinear_features(df: pd.DataFrame, threshold: float = 0.9) -> pd.DataFrame:
     """Drop highly collinear numeric features from the DataFrame."""
     logger = logging.getLogger(__name__)
@@ -506,7 +513,10 @@ def prepare_data(call_path,
 
     df['missing_flag'] = df['call_count'].isna().astype(int)
     df['call_count'] = df['call_count'].ffill(limit=1)
-    df['call_count'] = df['call_count'].interpolate()
+    try:
+        df['call_count'] = df['call_count'].interpolate(method='spline', order=3)
+    except Exception:
+        df['call_count'] = df['call_count'].interpolate()
     df['call_count'] = df['call_count'].astype(float)
 
     # Recalculate weekday means after cleaning
@@ -540,12 +550,13 @@ def prepare_data(call_path,
     event_mask = (df['federal_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
     df['outlier_flag'] = ((z.abs() > 3) & ~event_mask).astype(int)
-    df.loc[df['outlier_flag'] == 1, 'call_count'] = winsorize_series(df.loc[df['outlier_flag'] == 1, 'call_count'])
+    df.loc[df['outlier_flag'] == 1, 'call_count'] = winsorize_quantile(
+        df.loc[df['outlier_flag'] == 1, 'call_count']
+    )
 
     # Winsorize extreme call spikes above the 99th percentile
-    clip_val = df['call_count'].quantile(0.99)
-    df['spike_flag'] = (df['call_count'] > clip_val).astype(int)
-    df['call_count'] = df['call_count'].clip(upper=clip_val)
+    df['spike_flag'] = (df['call_count'] > df['call_count'].quantile(0.99)).astype(int)
+    df['call_count'] = winsorize_quantile(df['call_count'])
 
     # Keep raw counts; z-scoring applied later
     # Feature engineering: lags and rolling stats for potential use as regressors
@@ -557,6 +568,11 @@ def prepare_data(call_path,
 
     df["visit_ma3"] = df["visit_count"].rolling(3, min_periods=1).mean()
     df["chatbot_ma3"] = df["chatbot_count"].rolling(3, min_periods=1).mean()
+
+    # Winsorize continuous regressors
+    for col in ["visit_ma3", "chatbot_count", "chatbot_ma3"]:
+        if col in df.columns:
+            df[col] = winsorize_quantile(df[col])
 
     # Drop problematic flat-line period in May 2025
     flat_start = pd.Timestamp("2025-05-06")
@@ -628,9 +644,10 @@ def create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates):
         'upper_window': 3  # Effect may last for 3 days after press release
     })
     
-    # Combine all holiday DataFrames
+    # Combine all holiday DataFrames and remove duplicates
     all_holidays = pd.concat([holidays, deadlines, press_releases])
-    
+    all_holidays = all_holidays.drop_duplicates(subset=['ds', 'holiday'])
+
     return all_holidays
 
 def enhance_holiday_handling(holidays_df):
@@ -727,13 +744,13 @@ def train_prophet_model(
     max_calls = prophet_df['y'].max()
 
     default_params = {
-        'yearly_seasonality': False,
-        'weekly_seasonality': False,
+        'yearly_seasonality': 8,
+        'weekly_seasonality': True,
         'daily_seasonality': False,
         'seasonality_mode': 'additive',
         'n_changepoints': 25,
         'changepoint_prior_scale': 0.2,
-        'changepoints': [pd.Timestamp('2025-05-01')],
+        'changepoints': None,
         'seasonality_prior_scale': 0.01,
         'holidays_prior_scale': 5,
         'holidays': holidays_df,
@@ -861,10 +878,6 @@ def train_prophet_model(
     forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
         forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
     )
-
-    # Enforce zero forecast on weekends and holidays
-    closed_mask = (forecast['ds'].dt.dayofweek >= 5) | (forecast['ds'].isin(holidays_df['ds']))
-    forecast.loc[closed_mask, ['yhat', 'yhat_lower', 'yhat_upper']] = 0
 
     _check_forecast_sanity(forecast)
 
