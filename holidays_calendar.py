@@ -91,6 +91,12 @@ def get_holidays_dataframe() -> pd.DataFrame:
         date(2025, 5, 13),
     ]
 
+    notice_mailout_dates = [
+        date(2023, 3, 1),
+        date(2024, 3, 1),
+        date(2025, 3, 1),
+    ]
+
     records = []
     for d in county_holidays:
         records.append({"date": pd.to_datetime(d), "event": "county_holiday"})
@@ -98,6 +104,8 @@ def get_holidays_dataframe() -> pd.DataFrame:
         records.append({"date": pd.to_datetime(d), "event": "tax_deadline"})
     for d in press_release_dates:
         records.append({"date": pd.to_datetime(d), "event": "press_release"})
+    for d in notice_mailout_dates:
+        records.append({"date": pd.to_datetime(d), "event": "notice_mailout"})
 
     df = pd.DataFrame(records).sort_values("date").reset_index(drop=True)
     return df

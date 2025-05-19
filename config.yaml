@@ -10,7 +10,7 @@ model:
   changepoint_prior_scale: 1.5
   mcmc_samples: 0
   weekly_seasonality: true
-  yearly_seasonality: true
+  yearly_seasonality: false
   daily_seasonality: false
 cross_validation:
   initial: '365 days'
