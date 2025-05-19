@@ -57,10 +57,16 @@ Windows text editor.
 
 ## Usage
 
+Before running the scripts ensure the real third-party packages are used by
+setting the environment variable `USE_REAL_LIBS` to `1`. This disables the
+lightweight stub modules bundled with the repository.
+
 Run the analysis by providing the three input CSV files and an optional output directory:
 
 ```bash
-python prophet_analysis.py calls.csv visitors.csv queries.csv output_dir
+set USE_REAL_LIBS=1 && python pipeline.py config.yaml            # Windows
+# or
+USE_REAL_LIBS=1 python pipeline.py config.yaml                    # Unix
 ```
 
 The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
