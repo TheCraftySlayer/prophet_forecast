@@ -15,6 +15,17 @@ Example usage::
     python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results \
         --handle-outliers winsorize --use-transformation false --skip-feature-importance
 """
+
+import os
+import sys
+
+# If the USE_REAL_LIBS environment variable is set, temporarily remove this
+# directory from ``sys.path`` so the real third-party packages are imported
+# instead of the lightweight stub modules bundled with the repository.
+_USE_REAL_LIBS = os.getenv("USE_REAL_LIBS") == "1"
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _USE_REAL_LIBS and _THIS_DIR in sys.path:
+    sys.path.remove(_THIS_DIR)
 import pandas as pd
 import numpy as np
 import itertools
@@ -22,8 +33,6 @@ from datetime import date, datetime
 import matplotlib.pyplot as plt
 import logging
 import argparse
-import sys
-import os
 from functools import lru_cache
 from pathlib import Path
 import glob
@@ -77,6 +86,11 @@ try:
     _HAVE_OPENPYXL = True
 except Exception:
     _HAVE_OPENPYXL = False
+
+# Restore this directory in sys.path so local modules can be imported after the
+# heavy third-party libraries have been loaded.
+if _USE_REAL_LIBS and _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
 
 
 def winsorize_series(series, limit=3):
