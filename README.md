@@ -72,3 +72,14 @@ The results, including forecasts and plots, will be saved in the specified outpu
 The exported Excel report now includes predictions for the previous 14 business days
 along with a forecast for the next business day. A naive baseline forecast for the
 same 14-day window and corresponding MAE, RMSE, and MAPE metrics are also included.
+
+## Model specification
+
+The Prophet model uses additive seasonality with linear growth. Default
+hyperparameters are:
+
+- `changepoint_prior_scale=0.05`
+- `holidays_prior_scale=5`
+- `regressor_prior_scale=0.05`
+
+You can modify these settings in `config.yaml` if desired.

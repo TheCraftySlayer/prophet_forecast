@@ -58,6 +58,8 @@ def pipeline(config_path: Path):
         'weekly_seasonality': cfg['model']['weekly_seasonality'],
         'yearly_seasonality': cfg['model']['yearly_seasonality'],
         'daily_seasonality': cfg['model']['daily_seasonality'],
+        'growth': cfg['model'].get('growth', 'linear'),
+        'regressor_prior_scale': cfg['model'].get('regressor_prior_scale', 0.05),
     }
     model_params.update(best_params)
 
