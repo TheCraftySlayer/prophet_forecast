@@ -76,6 +76,7 @@ def pipeline(config_path: Path):
         future_periods=30,
         model_params=model_params,
         log_transform=True,
+        likelihood=cfg['model'].get('likelihood', 'normal'),
     )
 
     cv_params = cfg.get('cross_validation', {})
