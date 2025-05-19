@@ -2138,7 +2138,7 @@ def main(argv=None):
         # Load and prepare data
         df, regressors = prepare_data(call_path, visit_path, chat_path,
                                      scale_features=True)
-        
+
         # Convert to Prophet format
         prophet_df = prepare_prophet_data(df)
         
@@ -2240,7 +2240,7 @@ def main(argv=None):
         holidays_df = create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates)
         holidays_df = enhance_holiday_handling(holidays_df)
 
-        # Train Prophet model using tuned hyperparameters
+        # Initial training pass for outlier detection
         model, forecast, future = train_prophet_model(
             prophet_df,
             holidays_df,
@@ -2250,6 +2250,31 @@ def main(argv=None):
             log_transform=use_transformation,
             likelihood=likelihood,
         )
+
+        # Detect and handle outliers before final training
+        if handle_outliers_method:
+            logger.info(f"Handling outliers using {handle_outliers_method} before final training")
+            outlier_df = improve_outlier_detection(df, forecast)
+            df_cleaned = handle_outliers_prophet(df, outlier_df, method=handle_outliers_method)
+
+            # Recreate features with cleaned call data and retrain
+            df, regressors = prepare_data(
+                call_path,
+                visit_path,
+                chat_path,
+                cleaned_calls=df_cleaned['call_count'],
+                scale_features=True,
+            )
+            prophet_df = prepare_prophet_data(df)
+            model, forecast, future = train_prophet_model(
+                prophet_df,
+                holidays_df,
+                regressors,
+                future_periods=30,
+                model_params=best_params,
+                log_transform=use_transformation,
+                likelihood=likelihood,
+            )
         
         # Try to create ensemble model, but continue with single model if it fails
         try:
@@ -2292,16 +2317,6 @@ def main(argv=None):
 
         # Continue with the rest of the analysis functions
         try:
-            # Detect outliers
-            outlier_df = improve_outlier_detection(df, forecast)
-
-            # Handle outliers if requested
-            if handle_outliers_method:
-                logger.info(f"Handling outliers using {handle_outliers_method}")
-                df_cleaned = handle_outliers_prophet(df, outlier_df, method=handle_outliers_method)
-                
-                # Update df with cleaned values
-                df = df_cleaned
             
             # Analyze model components
             analyze_prophet_components(model, forecast, output_dir)
