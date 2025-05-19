@@ -105,3 +105,11 @@ The model is evaluated using a rolling origin cross‑validation scheme.
 The default initial window spans 365 days with a 30‑day horizon and
 30‑day evaluation period. A model is accepted only if the mean absolute
 error stays below 15% of the average call volume.
+
+### Windows compatibility
+
+Prophet's diagnostics spawn multiple worker processes. On Windows the
+default Tkinter-backed Matplotlib GUI conflicts with this and can raise
+``Operation not permitted`` errors from CmdStan. The analysis script now
+forces a headless Matplotlib backend and runs cross‑validation using
+threads to avoid the issue.
