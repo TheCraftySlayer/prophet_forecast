@@ -142,7 +142,7 @@ def tune_prophet_hyperparameters(prophet_df):
             
             # Create a new model instance with these parameters
             m = Prophet(
-                yearly_seasonality=True,
+                yearly_seasonality=False,
                 weekly_seasonality=True,
                 daily_seasonality=False,
                 seasonality_mode='additive',
@@ -404,17 +404,22 @@ def prepare_data(call_path,
 
     # Flag events before outlier handling
     deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq='MS')
-    df['holiday_flag'] = df.index.isin(holiday_dates).astype(int)
+    notice_dates = [pd.Timestamp(year, 3, 1) for year in range(idx.min().year, idx.max().year + 1)]
+    df['federal_holiday_flag'] = df.index.isin(holiday_dates).astype(int)
     df['deadline_flag'] = 0
+    df['notice_flag'] = 0
     for d in deadline_dates:
         window = pd.date_range(d - pd.Timedelta(days=5), d + pd.Timedelta(days=1))
         df.loc[df.index.isin(window), 'deadline_flag'] = 1
+    for d in notice_dates:
+        window = pd.date_range(d, d + pd.Timedelta(days=7))
+        df.loc[df.index.isin(window), 'notice_flag'] = 1
 
     # Flag for post-policy period starting May 2025
     policy_start = pd.Timestamp('2025-05-01')
     df['post_policy'] = (df.index >= policy_start).astype(int)
 
-    event_mask = (df['holiday_flag'] != 0) | (df['deadline_flag'] != 0)
+    event_mask = (df['federal_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
     df['outlier_flag'] = ((z.abs() > 3) & ~event_mask).astype(int)
     df.loc[df['outlier_flag'] == 1, 'call_count'] = winsorize_series(df.loc[df['outlier_flag'] == 1, 'call_count'])
@@ -577,7 +582,7 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     max_calls = prophet_df['y'].max()
 
     default_params = {
-        'yearly_seasonality': True,
+        'yearly_seasonality': False,
         'weekly_seasonality': True,
         'daily_seasonality': False,
         'seasonality_mode': 'additive',
@@ -599,7 +604,6 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     prophet_df['floor'] = 0
 
     model = Prophet(**default_params)
-    model.add_seasonality('yearly', period=365.25, fourier_order=8, mode='additive', prior_scale=0.05)
     
 
     # Drop collinear regressors first
@@ -611,6 +615,9 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
         'visit_count',
         'chatbot_count',
         'post_policy',
+        'notice_flag',
+        'deadline_flag',
+        'federal_holiday_flag',
     ]
     
     for regressor in important_regressors:
@@ -638,6 +645,9 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     future_regs['post_policy'] = (future['ds'] >= pd.Timestamp('2025-05-01')).astype(int)
     future_regs['visit_count'] = 0
     future_regs['chatbot_count'] = 0
+    future_regs['notice_flag'] = 0
+    future_regs['deadline_flag'] = 0
+    future_regs['federal_holiday_flag'] = 0
 
     # Overlay known regressor values from historical data
     known = regressors_df.reindex(future['ds'])
@@ -706,7 +716,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     
     # Base model
     model1 = Prophet(
-        yearly_seasonality=True,
+        yearly_seasonality=False,
         weekly_seasonality=True,
         daily_seasonality=False,
         seasonality_mode='additive',
@@ -715,7 +725,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     
     # More flexible model
     model2 = Prophet(
-        yearly_seasonality=True,
+        yearly_seasonality=False,
         weekly_seasonality=True,
         daily_seasonality=False,
         seasonality_mode='additive',
@@ -724,7 +734,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     
     # More rigid model
     model3 = Prophet(
-        yearly_seasonality=True,
+        yearly_seasonality=False,
         weekly_seasonality=True,
         daily_seasonality=False,
         seasonality_mode='additive',
@@ -738,7 +748,10 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     important_regressors = [
         'visit_count',
         'chatbot_count',
-        'post_policy'
+        'post_policy',
+        'notice_flag',
+        'deadline_flag',
+        'federal_holiday_flag'
     ]
     
     # Add regressors to each model and fit them
@@ -1067,8 +1080,9 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
     
     # Create versions of the data with one feature removed at a time
     features = [
-        'holiday_flag',
+        'federal_holiday_flag',
         'deadline_flag',
+        'notice_flag',
         'visit_count',
         'chatbot_count',
         'yearly_seasonality',
@@ -1085,7 +1099,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         # Base model performance
         future_periods = len(test_df)
         model_copy = Prophet(
-            yearly_seasonality=True,
+            yearly_seasonality=False,
             weekly_seasonality=True,
             daily_seasonality=False,
             seasonality_mode='additive',
@@ -1136,7 +1150,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 
                 # Refit and evaluate
                 test_model = Prophet(
-                    yearly_seasonality=True,
+                    yearly_seasonality=False,
                     weekly_seasonality=True,
                     daily_seasonality=False,
                     seasonality_mode='additive',
