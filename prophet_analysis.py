@@ -36,9 +36,27 @@ from statsmodels.stats.diagnostic import acorr_ljungbox
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
 # Import Prophet
-from prophet import Prophet
-from prophet.diagnostics import cross_validation, performance_metrics
-from prophet.plot import plot_cross_validation_metric
+try:
+    from prophet import Prophet
+    from prophet.diagnostics import cross_validation, performance_metrics
+    from prophet.plot import plot_cross_validation_metric
+    _HAVE_PROPHET = True
+except Exception:  # pragma: no cover - optional dependency may be missing
+    Prophet = None
+
+    def _missing_prophet(*_args, **_kwargs):
+        raise ImportError("prophet package is required for forecasting features")
+
+    def cross_validation(*args, **kwargs):
+        return _missing_prophet()
+
+    def performance_metrics(*args, **kwargs):
+        return _missing_prophet()
+
+    def plot_cross_validation_metric(*args, **kwargs):
+        return _missing_prophet()
+
+    _HAVE_PROPHET = False
 
 # Handle seaborn import safely
 try:
@@ -467,13 +485,13 @@ def enhance_holiday_handling(holidays_df):
     holiday_dates = pd.to_datetime(holidays_df[holidays_df['holiday'] == 'holiday']['ds'])
     bridge_days = []
     
-    for date in holiday_dates:
+    for holiday_date in holiday_dates:
         # If holiday is on Tuesday, Monday might be taken off
-        if date.dayofweek == 1:  # Tuesday
-            bridge_days.append(date - pd.Timedelta(days=1))
+        if holiday_date.dayofweek == 1:  # Tuesday
+            bridge_days.append(holiday_date - pd.Timedelta(days=1))
         # If holiday is on Thursday, Friday might be taken off
-        elif date.dayofweek == 3:  # Thursday
-            bridge_days.append(date + pd.Timedelta(days=1))
+        elif holiday_date.dayofweek == 3:  # Thursday
+            bridge_days.append(holiday_date + pd.Timedelta(days=1))
     
     # Add bridge days to holidays DataFrame
     if bridge_days:
@@ -1521,9 +1539,9 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     recent_forecast['actual'] = np.nan
     
     # Get actual values if available
-    for i, date in enumerate(recent_days):
-        if date in df.index:
-            recent_forecast.loc[recent_forecast['ds'] == date, 'actual'] = df.loc[date, 'call_count']
+    for i, day in enumerate(recent_days):
+        if day in df.index:
+            recent_forecast.loc[recent_forecast['ds'] == day, 'actual'] = df.loc[day, 'call_count']
     
     # Calculate errors
     recent_forecast['error'] = recent_forecast['actual'] - recent_forecast['yhat']
@@ -2099,7 +2117,7 @@ def main(argv=None):
             analyze_prophet_components(model, forecast, output_dir)
             
             # Analyze policy changes
-            policy_summary = analyze_policy_changes_prophet(df, forecast, output_dir)
+            analyze_policy_changes_prophet(df, forecast, output_dir)
             
 
             if run_cross_validation:
