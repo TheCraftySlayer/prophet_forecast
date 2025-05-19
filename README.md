@@ -60,6 +60,13 @@ python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results \
     --handle-outliers winsorize --use-transformation false --cross-validate
 ```
 
+### Data exclusions
+
+The preprocessing step removes weekends and county holiday closures from the
+training set. Any days with zero recorded calls are flagged and treated as
+missing values. Call volumes above the 99th percentile are winsorized to
+reduce the impact of extreme spikes.
+
 The results, including forecasts and plots, will be saved in the specified output directory.
 The exported Excel report now includes predictions for the previous 14 business days
 along with a forecast for the next business day. A naive baseline forecast for the
