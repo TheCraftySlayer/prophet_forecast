@@ -1,6 +1,6 @@
 # Prophet Forecast Analysis
 
-This project forecasts customer service call volume using [Prophet](https://github.com/facebook/prophet). It merges historical call, visitor and chatbot query data and trains a forecasting model. The script also produces diagnostic charts and exports predictions for the next business days. In addition to visitor and query counts, the model now includes explicit flags for notice-of-value mail-outs, assessment deadlines and federal holidays while disabling Prophet's built-in yearly seasonality.
+This project forecasts customer service call volume using [Prophet](https://github.com/facebook/prophet). It merges historical call, visitor and chatbot query data and trains a forecasting model. The script also produces diagnostic charts and exports predictions for upcoming business days. In addition to visitor and query counts, the model now includes explicit flags for notice-of-value mail-outs, assessment deadlines, federal holidays and a short campaign period. Prophet's built‑in yearly and weekly seasonalities are disabled in favor of these custom regressors.
 
 ## Requirements
 
@@ -72,10 +72,10 @@ python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results \
 The preprocessing step removes weekends and county holiday closures from the
 training set. Any days with zero recorded calls are flagged and treated as
 missing values. Call volumes above the 99th percentile are winsorized to
-reduce the impact of extreme spikes. Additional dummy variables mark periods for
-notice mail-outs, assessment deadlines and nearby federal holidays. Weekly
-patterns are modeled using Prophet's built-in seasonality instead of manual
-weekday columns.
+reduce the impact of extreme spikes. Dummy variables mark periods for notice
+mail-outs, assessment deadlines, a May 2025 campaign and nearby federal
+holidays. Only a 3‑day moving average of visitor counts and raw chatbot
+queries are retained as regressors.
 
 The modeling pipeline applies a `log1p` transform to the target series to
 stabilize variance and then back‑transforms predictions to the original scale.
@@ -87,11 +87,13 @@ same 14-day window and corresponding MAE, RMSE, and MAPE metrics are also includ
 
 ## Model specification
 
-The Prophet model uses multiplicative seasonality with linear growth. Default
+The Prophet model uses additive seasonality with linear growth. Default
 hyperparameters are:
 
-- `changepoint_prior_scale=0.05`
+- `changepoint_prior_scale=0.2`
 - `holidays_prior_scale=5`
+- `seasonality_prior_scale=0.01`
+- `uncertainty_samples=300`
 - `regressor_prior_scale=0.05`
 - `likelihood=normal`
 
@@ -100,7 +102,6 @@ You can modify these settings in `config.yaml` if desired.
 ## Cross-validation discipline
 
 The model is evaluated using a rolling origin cross‑validation scheme.
-By default the initial training window spans 270 days with a 30‑day
-horizon and evaluation period of 14 days. A model is accepted only if the
-mean absolute percentage error (MAPE) stays below 20% and the mean
-absolute error (MAE) is under 60 calls.
+The default initial window spans 365 days with a 30‑day horizon and
+30‑day evaluation period. A model is accepted only if the mean absolute
+error stays below 15% of the average call volume.
