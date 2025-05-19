@@ -363,6 +363,10 @@ def prepare_data(call_path,
     logger.info(f"Creating unified date range from {start} to {end}")
     idx = pd.date_range(start=start, end=end, freq="B")
 
+    holiday_cal = USFederalHolidayCalendar()
+    holiday_dates = holiday_cal.holidays(start=idx.min(), end=idx.max())
+    idx = idx.drop(holiday_dates)
+
     # Build main dataframe
     df = pd.DataFrame({
         "call_count": calls.reindex(idx),
@@ -370,18 +374,16 @@ def prepare_data(call_path,
         "chatbot_count": chat.reindex(idx, fill_value=0)
     }, index=idx)
 
+    # Flag zero-call days and treat as missing
+    df['zero_call_flag'] = (df['call_count'] == 0).astype(int)
+    df.loc[df['zero_call_flag'] == 1, 'call_count'] = np.nan
+
     df['missing_flag'] = df['call_count'].isna().astype(int)
     df['call_count'] = df['call_count'].ffill(limit=1)
     df['call_count'] = df['call_count'].interpolate()
     df['call_count'] = df['call_count'].astype(float)
 
-    # Zero out weekends and holidays
-    holiday_cal = USFederalHolidayCalendar()
-    holiday_dates = holiday_cal.holidays(start=idx.min(), end=idx.max())
-    closed_mask = (df.index.dayofweek >= 5) | (df.index.isin(holiday_dates))
-    df.loc[closed_mask, 'call_count'] = 0
-
-    # Recalculate weekday means after zeroing
+    # Recalculate weekday means after cleaning
     weekday_means = df.loc[df.index.dayofweek < 5, 'call_count'].groupby(df.index.dayofweek).mean()
     if not weekday_means.empty:
         monday_spike = weekday_means.get(0, 0) - weekday_means.drop(0).mean()
@@ -404,8 +406,9 @@ def prepare_data(call_path,
     df['outlier_flag'] = ((z.abs() > 3) & ~event_mask).astype(int)
     df.loc[df['outlier_flag'] == 1, 'call_count'] = winsorize_series(df.loc[df['outlier_flag'] == 1, 'call_count'])
 
-    # Clip extreme call counts at the 95th percentile
-    clip_val = df['call_count'].quantile(0.95)
+    # Winsorize extreme call spikes above the 99th percentile
+    clip_val = df['call_count'].quantile(0.99)
+    df['spike_flag'] = (df['call_count'] > clip_val).astype(int)
     df['call_count'] = df['call_count'].clip(upper=clip_val)
 
     df['visit_log1p'] = np.log1p(df['visit_count'])
