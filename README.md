@@ -20,6 +20,14 @@ Install dependencies with the exact versions pinned in `requirements.txt`:
 pip install -r requirements.txt
 ```
 
+The pipeline currently relies on `statsmodels` 0.14 which is incompatible with
+`pandas` 2.0 and later. If you see an error like `ModuleNotFoundError: No module
+named 'pandas.util'`, ensure pandas 1.x is installed:
+
+```bash
+pip install "pandas<2"
+```
+
 ### Stub libraries
 
 For testing purposes the repository contains lightweight stub versions of
