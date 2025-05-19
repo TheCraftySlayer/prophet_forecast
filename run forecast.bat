@@ -1,12 +1,8 @@
 @echo off
 cd /d "%~dp0"
 
-REM Run Prophet forecasting with outlier handling and cross-validation
+REM Run the full forecasting pipeline using the default configuration
 set USE_REAL_LIBS=1
-python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results ^
-    --handle-outliers winsorize ^
-    --use-transformation false ^
-    --cross-validate ^
-    --likelihood poisson
+python pipeline.py config.yaml
 
 pause
