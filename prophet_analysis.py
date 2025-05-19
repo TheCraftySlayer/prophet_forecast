@@ -509,10 +509,6 @@ def prepare_data(call_path,
     df['call_count'] = df['call_count'].clip(upper=clip_val)
 
     # Keep raw counts; z-scoring applied later
-    df['is_weekday'] = (df.index.dayofweek < 5).astype(int)
-
-
-
     # Feature engineering: lags and rolling stats for potential use as regressors
     logger.info("Creating lag and rolling features")
     for lag in [1, 3, 7]:
@@ -538,9 +534,6 @@ def prepare_data(call_path,
 
     # Create regressors dataframe for Prophet
     regressors = df.copy()
-
-    # Add day of week information for completeness
-    regressors["day_of_week"] = regressors.index.dayofweek
 
     if scale_features:
         # Standardize numeric regressors (z-score) except binary flags

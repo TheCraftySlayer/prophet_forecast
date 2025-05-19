@@ -73,7 +73,9 @@ The preprocessing step removes weekends and county holiday closures from the
 training set. Any days with zero recorded calls are flagged and treated as
 missing values. Call volumes above the 99th percentile are winsorized to
 reduce the impact of extreme spikes. Additional dummy variables mark periods for
-notice mail-outs, assessment deadlines and nearby federal holidays.
+notice mail-outs, assessment deadlines and nearby federal holidays. Weekly
+patterns are modeled using Prophet's built-in seasonality instead of manual
+weekday columns.
 
 The modeling pipeline applies a `log1p` transform to the target series to
 stabilize variance and then back‑transforms predictions to the original scale.
