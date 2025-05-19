@@ -87,7 +87,7 @@ same 14-day window and corresponding MAE, RMSE, and MAPE metrics are also includ
 
 ## Model specification
 
-The Prophet model uses additive seasonality with linear growth. Default
+The Prophet model uses multiplicative seasonality with linear growth. Default
 hyperparameters are:
 
 - `changepoint_prior_scale=0.05`
