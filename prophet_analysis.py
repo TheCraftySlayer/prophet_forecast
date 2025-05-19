@@ -1477,8 +1477,10 @@ def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
             metrics.to_excel(writer, sheet_name="Metrics", index=False)
             input_data.to_excel(writer, sheet_name="Input Data", index=False)
     else:
-        # Fallback: write CSV data with .xlsx extension if openpyxl is missing
+        # Fallback when openpyxl is unavailable - still export all data
         baseline_df.to_csv(excel_path, index=False)
+        metrics.to_csv(output_dir / "baseline_metrics.csv", index=False)
+        input_data.to_csv(output_dir / "baseline_input_data.csv", index=False)
 
     return excel_path
 
