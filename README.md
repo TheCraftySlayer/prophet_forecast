@@ -86,3 +86,11 @@ hyperparameters are:
 - `regressor_prior_scale=0.05`
 
 You can modify these settings in `config.yaml` if desired.
+
+## Cross-validation discipline
+
+The model is evaluated using a rolling origin cross‑validation scheme.
+By default the initial training window spans 270 days with a 30‑day
+horizon and evaluation period of 14 days. A model is accepted only if the
+mean absolute percentage error (MAPE) stays below 20% and the mean
+absolute error (MAE) is under 60 calls.
