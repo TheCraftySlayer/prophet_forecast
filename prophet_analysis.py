@@ -236,7 +236,7 @@ def tune_prophet_hyperparameters(prophet_df):
     param_grid = {
         'seasonality_prior_scale': [0.01, 0.1, 1.0],
         'holidays_prior_scale': [5],
-        'changepoint_prior_scale': [0.2]
+        'changepoint_prior_scale': [0.3, 0.4, 0.5]
     }
     
     # Generate all combinations
@@ -251,27 +251,25 @@ def tune_prophet_hyperparameters(prophet_df):
         
         try:
             m = Prophet(
-                growth='logistic',
+                growth='linear',
                 interval_width=0.8,
                 seasonality_mode='additive',
                 yearly_seasonality='auto',
                 weekly_seasonality=True,
                 daily_seasonality=False,
-                n_changepoints=8,
+                n_changepoints=25,
+                changepoint_range=0.9,
                 **params
             )
 
-            max_y = prophet_df['y'].max()
             df_copy = prophet_df.copy()
-            df_copy['cap'] = max_y * 1.2
-            df_copy['floor'] = 0
 
             _ensure_tbb_on_path()
             _fit_prophet_with_fallback(m, df_copy)
 
             df_cv = cross_validation(
                 m,
-                initial='180 days',
+                initial='365 days',
                 period='30 days',
                 horizon='30 days',
                 parallel='threads'
@@ -581,6 +579,14 @@ def prepare_data(call_path,
     df["call_std7"] = df["call_count"].rolling(7, min_periods=1).std().fillna(0).astype(float)
 
     df["visit_ma3"] = df["visit_count"].rolling(3, min_periods=1).mean()
+
+    # Standardize chatbot counts on log scale
+    df["chatbot_count"] = np.log1p(df["chatbot_count"])
+    mean_chat = df["chatbot_count"].mean()
+    std_chat = df["chatbot_count"].std()
+    if std_chat != 0:
+        df["chatbot_count"] = (df["chatbot_count"] - mean_chat) / std_chat
+    df["chatbot_count"] = winsorize_series(df["chatbot_count"], limit=3)
     df["chatbot_ma3"] = df["chatbot_count"].rolling(3, min_periods=1).mean()
 
     # Winsorize continuous regressors
@@ -616,7 +622,7 @@ def prepare_data(call_path,
     regressors = regressors[important_regs]
 
     if scale_features:
-        for col in ["visit_ma3", "chatbot_count"]:
+        for col in ["visit_ma3"]:
             if col in regressors.columns:
                 mean = regressors[col].mean()
                 std = regressors[col].std()
@@ -755,15 +761,15 @@ def train_prophet_model(
     logger.info("Training Prophet model")
     
     # Initialize Prophet model with optional tuned parameters
-    max_calls = prophet_df['y'].max()
 
     default_params = {
         'yearly_seasonality': 'auto',
         'weekly_seasonality': True,
         'daily_seasonality': False,
         'seasonality_mode': 'additive',
-        'n_changepoints': 8,
-        'changepoint_prior_scale': 0.2,
+        'n_changepoints': 25,
+        'changepoint_prior_scale': 0.4,
+        'changepoint_range': 0.9,
         'changepoints': [
             pd.Timestamp('2023-11-01'),
             pd.Timestamp('2024-04-15'),
@@ -774,7 +780,7 @@ def train_prophet_model(
         'holidays': holidays_df,
         'mcmc_samples': 0,
         'uncertainty_samples': 300,
-        'growth': 'logistic',
+        'growth': 'linear',
         'interval_width': 0.8
     }
 
@@ -790,9 +796,6 @@ def train_prophet_model(
     if log_transform:
         prophet_df['y'] = np.log1p(prophet_df['y'])
 
-    if default_params.get('growth') == 'logistic':
-        prophet_df['cap'] = max_calls * 1.2
-        prophet_df['floor'] = 0
 
     custom_model_path = None
     if likelihood != "normal":
@@ -847,9 +850,6 @@ def train_prophet_model(
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods, freq="B")
-    if default_params.get('growth') == 'logistic':
-        future['cap'] = max_calls * 1.2
-        future['floor'] = 0
 
     # Build full daily calendar covering the forecast horizon
     full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='B')
@@ -1829,7 +1829,7 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     output_dir.mkdir(exist_ok=True)
     
     # Define output file
-    output_file = output_dir / "prophet_call_predictions.xlsx"
+    output_file = output_dir / "prophet_call_predictions_v3.xlsx"
     
     # Get the past 14 business days based on the available data
     last_date = df.index.max()
@@ -1863,14 +1863,6 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     if len(next_day_forecast) == 0:
         # If next day isn't in forecast, make a special prediction
         future = pd.DataFrame({'ds': [next_day]})
-        # Include cap and floor for logistic growth models
-        if hasattr(model, 'history'):
-            if 'cap' in model.history:
-                future['cap'] = model.history['cap'].max()
-            if 'floor' in model.history:
-                future['floor'] = model.history['floor'].min()
-        
-        # Add any required regressors
         for regressor in model.extra_regressors:
             future[regressor] = 0
         

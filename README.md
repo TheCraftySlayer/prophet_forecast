@@ -14,11 +14,10 @@ This project forecasts customer service call volume using [Prophet](https://gith
 - openpyxl
 - ruamel.yaml>=0.17.32
 
-Install dependencies with:
+Install dependencies with the exact versions pinned in `requirements.txt`:
 
 ```bash
-pip install pandas numpy matplotlib seaborn scikit-learn \
-    prophet>=1.1.5 openpyxl ruamel.yaml>=0.17.32
+pip install -r requirements.txt
 ```
 
 ### Stub libraries
@@ -81,16 +80,19 @@ The modeling pipeline applies a `log1p` transform to the target series to
 stabilize variance and then back‑transforms predictions to the original scale.
 
 The results, including forecasts and plots, will be saved in the specified output directory.
-The exported Excel report now includes predictions for the previous 14 business days
+The exported Excel report (`prophet_call_predictions_v3.xlsx`) now includes
+predictions for the previous 14 business days
 along with a forecast for the next business day. A naive baseline forecast for the
 same 14-day window and corresponding MAE, RMSE, and MAPE metrics are also included.
 
 ## Model specification
 
 The Prophet model uses additive seasonality with linear growth. Default
-hyperparameters are:
+hyperparameters are now tuned for a more flexible trend:
 
-- `changepoint_prior_scale=0.2`
+- `changepoint_prior_scale=0.4`
+- `changepoint_range=0.9`
+- `n_changepoints=25`
 - `holidays_prior_scale=5`
 - `seasonality_prior_scale=0.01`
 - `uncertainty_samples=300`
