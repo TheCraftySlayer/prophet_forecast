@@ -21,6 +21,23 @@ pip install pandas numpy matplotlib seaborn scikit-learn \
     prophet>=1.1.5 openpyxl ruamel.yaml>=0.17.32
 ```
 
+### Stub libraries
+
+For testing purposes the repository contains lightweight stub versions of
+`pandas`, `numpy` and a few other libraries. They allow the unit tests to run
+without installing the real dependencies. When running the forecasting script
+for real analysis you should ensure the actual packages are installed and tell
+the script to use them by setting the `USE_REAL_LIBS` environment variable to
+`1`:
+
+```bash
+set USE_REAL_LIBS=1  # Windows
+# or
+export USE_REAL_LIBS=1  # Unix
+```
+
+This variable is already set in the provided `run forecast.bat` script.
+
 ## Usage
 
 Run the analysis by providing the three input CSV files and an output directory:
