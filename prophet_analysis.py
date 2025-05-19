@@ -323,7 +323,9 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
         raise ValueError(f"Unsupported file format: {path}")
 
     # Convert date column to datetime
-    df["date_parsed"] = pd.to_datetime(df[date_col], errors="coerce")
+    df["date_parsed"] = pd.to_datetime(
+        df[date_col], format="%m/%d/%y", errors="coerce"
+    )
     df = df.dropna(subset=["date_parsed"])
 
     # Drop weekends before further processing
@@ -360,15 +362,12 @@ def verify_date_formats(call_path, visit_path, chat_path):
         else:
             logger.info(f"{name}: {df['date'].iloc[0]}")
 
-    # Try parsing dates from each file
+    # Parse dates using the known format
     for name, df in [("Calls", call_df), ("Visits", visit_df), ("Queries", chat_df)]:
         if df.empty:
             continue
-        try:
-            dates = pd.to_datetime(df['date'], errors='raise')
-            logger.info(f"{name}: Successfully parsed {len(dates)} dates")
-        except Exception as e:
-            logger.warning(f"{name}: Error parsing dates - {str(e)}")
+        dates = pd.to_datetime(df['date'], format="%m/%d/%y", errors="coerce")
+        logger.info(f"{name}: Successfully parsed {len(dates.dropna())} dates")
 
 
 def build_flag_series(dates: pd.DatetimeIndex, dates_list: list) -> pd.Series:
@@ -403,7 +402,9 @@ def prepare_data(call_path,
     # Check for large date gaps
     calls_dates = load_time_series(call_path, metric="call").index
     visits_dates = load_time_series(visit_path, metric="visit").index
-    chat_dates = pd.to_datetime(pd.read_csv(chat_path)['date']).dropna()
+    chat_dates = pd.to_datetime(
+        pd.read_csv(chat_path)['date'], format="%m/%d/%y"
+    ).dropna()
 
     # Log date ranges
     logger.info(
@@ -439,7 +440,14 @@ def prepare_data(call_path,
     chat = (
         pd.to_datetime(
             chat_df[dt_col],
-            errors="coerce").dropna().dt.normalize().value_counts().sort_index())
+            format="%m/%d/%y",
+            errors="coerce",
+        )
+        .dropna()
+        .dt.normalize()
+        .value_counts()
+        .sort_index()
+    )
 
     # Create unified date range
     start = min(calls.index.min(), visits.index.min(), chat.index.min())
