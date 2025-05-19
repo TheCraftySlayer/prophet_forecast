@@ -100,6 +100,19 @@ def winsorize_series(series, limit=3):
     lower = mean - limit * std
     upper = mean + limit * std
     return series.clip(lower, upper)
+
+
+def drop_collinear_features(df: pd.DataFrame, threshold: float = 0.9) -> pd.DataFrame:
+    """Drop highly collinear numeric features from the DataFrame."""
+    logger = logging.getLogger(__name__)
+    numeric_df = df.select_dtypes(include=np.number).drop(columns=['call_count'], errors='ignore')
+    corr = numeric_df.corr().abs()
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+    to_drop = [col for col in upper.columns if any(upper[col] > threshold)]
+    if to_drop:
+        logger.info("Dropping collinear features: %s", to_drop)
+        df = df.drop(columns=to_drop)
+    return df
 def tune_prophet_hyperparameters(prophet_df):
     """Find optimal Prophet hyperparameters using grid search"""
     logger = logging.getLogger(__name__)
@@ -411,10 +424,8 @@ def prepare_data(call_path,
     df['spike_flag'] = (df['call_count'] > clip_val).astype(int)
     df['call_count'] = df['call_count'].clip(upper=clip_val)
 
-    df['visit_log1p'] = np.log1p(df['visit_count'])
-    df['chatbot_log1p'] = np.log1p(df['chatbot_count'])
+    # Keep raw counts; z-scoring applied later
     df['is_weekday'] = (df.index.dayofweek < 5).astype(int)
-    df['visit_weekday_interaction'] = df['visit_log1p'] * df['is_weekday']
 
 
 
@@ -457,6 +468,9 @@ def prepare_data(call_path,
                 std = regressors[col].std()
                 if std != 0:
                     regressors[col] = (regressors[col] - mean) / std
+
+    # Drop highly collinear regressors to avoid instability
+    regressors = drop_collinear_features(regressors)
 
     return df, regressors
 
@@ -588,11 +602,14 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
     model.add_seasonality('yearly', period=365.25, fourier_order=8, mode='additive', prior_scale=0.05)
     
 
+    # Drop collinear regressors first
+    regressors_df = drop_collinear_features(regressors_df)
+
     # Restrict regressors to mitigate collinearity
-    # Only use visitors, queries and one policy indicator
+    # Use standardized raw visitor and chatbot counts
     important_regressors = [
-        'visit_log1p',
-        'chatbot_log1p',
+        'visit_count',
+        'chatbot_count',
         'post_policy',
     ]
     
@@ -619,8 +636,8 @@ def train_prophet_model(prophet_df, holidays_df, regressors_df, future_periods=3
 
     # Required regressors only
     future_regs['post_policy'] = (future['ds'] >= pd.Timestamp('2025-05-01')).astype(int)
-    future_regs['visit_log1p'] = np.log1p(0)
-    future_regs['chatbot_log1p'] = np.log1p(0)
+    future_regs['visit_count'] = 0
+    future_regs['chatbot_count'] = 0
 
     # Overlay known regressor values from historical data
     known = regressors_df.reindex(future['ds'])
@@ -680,6 +697,9 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     """Create a simple ensemble of multiple Prophet models"""
     logger = logging.getLogger(__name__)
     logger.info("Creating ensemble of Prophet models")
+
+    # Remove collinear regressors to keep models stable
+    regressors_df = drop_collinear_features(regressors_df)
     
     # Create multiple Prophet models with different hyperparameters
     models = []
@@ -716,8 +736,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     # Add same regressors to all models
     # Use the reduced regressor set to avoid collinearity
     important_regressors = [
-        'visit_log1p',
-        'chatbot_log1p',
+        'visit_count',
+        'chatbot_count',
         'post_policy'
     ]
     
@@ -1075,7 +1095,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         # Add regressors to the base model
         for feature in features:
             if feature.endswith('_flag') and feature in prophet_df.columns:
-                model_copy.add_regressor(feature, mode='multiplicative')
+                model_copy.add_regressor(feature, mode='additive')
         
         model_copy.fit(train_df)
         future = model_copy.make_future_dataframe(periods=future_periods)
@@ -1126,7 +1146,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add remaining regressors
                 for other_feature in [f for f in features if f.endswith('_flag') and f != feature]:
                     if other_feature in test_df.columns:
-                        test_model.add_regressor(other_feature, mode='multiplicative')
+                        test_model.add_regressor(other_feature, mode='additive')
                 
                 test_model.fit(test_df)
                 
@@ -1174,7 +1194,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add regressors
                 for other_feature in [f for f in features if f.endswith('_flag')]:
                     if other_feature in prophet_df.columns:
-                        test_model.add_regressor(other_feature, mode='multiplicative')
+                        test_model.add_regressor(other_feature, mode='additive')
                 
                 if quick_mode:
                     # Use the simplified validation approach
