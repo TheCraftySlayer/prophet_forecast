@@ -1,4 +1,6 @@
-cd "C:\Users\anewe\OneDrive - Bernalillo County\Customer Data\Python Project"
+@echo off
+cd /d "%~dp0"
 
-cmd /k python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results --handle-outliers winsorize --use-transformation false
+python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results --handle-outliers winsorize --use-transformation false
 
+pause
