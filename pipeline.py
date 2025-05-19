@@ -55,6 +55,7 @@ def pipeline(config_path: Path):
         'holidays_prior_scale': cfg['model']['holidays_prior_scale'],
         'changepoint_prior_scale': cfg['model']['changepoint_prior_scale'],
         'n_changepoints': cfg['model'].get('n_changepoints', 8),
+        'changepoint_range': cfg['model'].get('changepoint_range', 0.8),
         'mcmc_samples': cfg['model']['mcmc_samples'],
         'interval_width': cfg['model'].get('interval_width', 0.8),
         'weekly_seasonality': cfg['model']['weekly_seasonality'],
