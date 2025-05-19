@@ -1822,12 +1822,12 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     # Define output file
     output_file = output_dir / "prophet_call_predictions.xlsx"
     
-    # Get the past 14 business days
-    today = pd.Timestamp.today()
-    recent_days = pd.date_range(end=today, periods=14, freq='B')
-    
+    # Get the past 14 business days based on the available data
+    last_date = df.index.max()
+    recent_days = pd.date_range(end=last_date, periods=14, freq='B')
+
     # Get the next business day
-    next_day = today + pd.Timedelta(days=1)
+    next_day = last_date + pd.Timedelta(days=1)
     if next_day.weekday() >= 5:  # Weekend
         next_day = next_day + pd.Timedelta(days=7 - next_day.weekday())
     
