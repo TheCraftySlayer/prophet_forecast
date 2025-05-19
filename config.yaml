@@ -8,15 +8,17 @@ model:
   seasonality_prior_scale: 0.01
   holidays_prior_scale: 5
   changepoint_prior_scale: 0.2
+  n_changepoints: 8
   regressor_prior_scale: 0.05
-  growth: linear
+  growth: logistic
   mcmc_samples: 0
+  interval_width: 0.8
   weekly_seasonality: true
-  yearly_seasonality: 8
+  yearly_seasonality: auto
   daily_seasonality: false
-  likelihood: normal
+  likelihood: poisson
   uncertainty_samples: 300
 cross_validation:
-  initial: '365 days'
+  initial: '180 days'
   period: '30 days'
   horizon: '30 days'

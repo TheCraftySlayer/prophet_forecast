@@ -229,68 +229,71 @@ def tune_prophet_hyperparameters(prophet_df):
     logger = logging.getLogger(__name__)
     logger.info("Tuning Prophet hyperparameters")
     
-    # Expanded parameter grid for broader search
+    # Parameter grid
     param_grid = {
-        'changepoint_prior_scale': [0.05],
-        'seasonality_prior_scale': [1.0, 10.0, 20.0, 30.0],
-        'holidays_prior_scale': [5]
+        'seasonality_prior_scale': [0.01, 0.1, 1.0],
+        'holidays_prior_scale': [5],
+        'changepoint_prior_scale': [0.2]
     }
     
     # Generate all combinations
     all_params = [dict(zip(param_grid.keys(), v)) for v in itertools.product(*param_grid.values())]
     
     # Storage for results
-    rmses = []
+    mapes = []
     
     # Use cross-validation to evaluate
     for i, params in enumerate(all_params):
         logger.info(f"Testing hyperparameter combination {i+1}/{len(all_params)}")
         
         try:
-            # Create train/test split - hold out last 30 days
-            train = prophet_df[prophet_df['ds'] < prophet_df['ds'].max() - pd.Timedelta(days=30)]
-            test = prophet_df[prophet_df['ds'] >= prophet_df['ds'].max() - pd.Timedelta(days=30)]
-            
-            # Create a new model instance with these parameters
             m = Prophet(
-                yearly_seasonality=False,
+                growth='logistic',
+                interval_width=0.8,
+                seasonality_mode='additive',
+                yearly_seasonality='auto',
                 weekly_seasonality=True,
                 daily_seasonality=False,
-                seasonality_mode='multiplicative',
+                n_changepoints=8,
                 **params
             )
-            
-            # Fit on training data only
+
+            max_y = prophet_df['y'].max()
+            df_copy = prophet_df.copy()
+            df_copy['cap'] = max_y * 1.2
+            df_copy['floor'] = 0
+
             _ensure_tbb_on_path()
-            _fit_prophet_with_fallback(m, train)
-            
-            # Predict on held-out period
-            future = m.make_future_dataframe(periods=30)
-            forecast = m.predict(future)
-            
-            # Evaluate only on held-out period
-            y_true = test['y'].values
-            y_pred = forecast.tail(len(test))['yhat'].values
-            
-            # Handle different scikit-learn versions
-            try:
-                # Newer scikit-learn versions
-                rmse = mean_squared_error(y_true, y_pred, squared=False)
-            except TypeError:
-                # Older scikit-learn versions
-                rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-            
-            rmses.append(rmse)
+            _fit_prophet_with_fallback(m, df_copy)
+
+            df_cv = cross_validation(
+                m,
+                initial='180 days',
+                period='30 days',
+                horizon='30 days',
+                parallel='processes'
+            )
+            df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
+            df_p = performance_metrics(df_cv, rolling_window=1)
+            if 'mape' in df_p.columns:
+                mapes.append(df_p['mape'].mean())
+            else:
+                nonzero = df_cv['y'] != 0
+                mape = (
+                    np.abs(df_cv.loc[nonzero, 'y'] - df_cv.loc[nonzero, 'yhat']) /
+                    np.abs(df_cv.loc[nonzero, 'y'])
+                ).mean() * 100 if nonzero.any() else float('inf')
+                mapes.append(mape)
         except Exception as e:
             logger.warning(f"Error with hyperparameter combination {params}: {str(e)}")
-            rmses.append(float('inf'))  # Assign worst possible score
+            mapes.append(float('inf'))  # Assign worst possible score
     
     # Find best parameters
-    if not rmses or all(np.isinf(rmses)):
+    if not mapes or all(np.isinf(mapes)):
         logger.warning("All hyperparameter combinations failed, using defaults")
-        best_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'holidays_prior_scale': 5}
+        best_params = {'changepoint_prior_scale': 0.2, 'seasonality_prior_scale': 0.01, 'holidays_prior_scale': 5}
     else:
-        best_params = all_params[np.argmin(rmses)]
+        best_params = all_params[np.argmin(mapes)]
     
     logger.info(f"Best parameters found: {best_params}")
     return best_params
@@ -538,6 +541,9 @@ def prepare_data(call_path,
         window = pd.date_range(d, d + pd.Timedelta(days=7))
         df.loc[df.index.isin(window), 'notice_flag'] = 1
 
+    df['deadline_flag'] = df['deadline_flag'].astype(int)
+    df['notice_flag'] = df['notice_flag'].astype(int)
+
     # Flag for post-policy period starting May 2025
     policy_start = pd.Timestamp('2025-05-01')
     df['post_policy'] = (df.index >= policy_start).astype(int)
@@ -557,6 +563,9 @@ def prepare_data(call_path,
     # Winsorize extreme call spikes above the 99th percentile
     df['spike_flag'] = (df['call_count'] > df['call_count'].quantile(0.99)).astype(int)
     df['call_count'] = winsorize_quantile(df['call_count'])
+
+    # Remove intermediate quality flags
+    df = df.drop(columns=['zero_call_flag', 'missing_flag'])
 
     # Keep raw counts; z-scoring applied later
     # Feature engineering: lags and rolling stats for potential use as regressors
@@ -744,19 +753,24 @@ def train_prophet_model(
     max_calls = prophet_df['y'].max()
 
     default_params = {
-        'yearly_seasonality': 8,
+        'yearly_seasonality': 'auto',
         'weekly_seasonality': True,
         'daily_seasonality': False,
         'seasonality_mode': 'additive',
-        'n_changepoints': 25,
+        'n_changepoints': 8,
         'changepoint_prior_scale': 0.2,
-        'changepoints': None,
+        'changepoints': [
+            pd.Timestamp('2023-11-01'),
+            pd.Timestamp('2024-04-15'),
+            pd.Timestamp('2025-04-01')
+        ],
         'seasonality_prior_scale': 0.01,
         'holidays_prior_scale': 5,
         'holidays': holidays_df,
         'mcmc_samples': 0,
         'uncertainty_samples': 300,
-        'growth': 'linear'
+        'growth': 'logistic',
+        'interval_width': 0.8
     }
 
     reg_prior_scale = 0.05
@@ -772,7 +786,7 @@ def train_prophet_model(
         prophet_df['y'] = np.log1p(prophet_df['y'])
 
     if default_params.get('growth') == 'logistic':
-        prophet_df['cap'] = max_calls * 1.1
+        prophet_df['cap'] = max_calls * 1.2
         prophet_df['floor'] = 0
 
     custom_model_path = None
@@ -814,9 +828,11 @@ def train_prophet_model(
         if regressor in regressors_df.columns:
             prophet_df[regressor] = regressors_df[regressor].values
         if regressor == 'post_policy':
-            model.add_regressor(regressor, mode='additive', prior_scale=10)
+            model.add_regressor(regressor, mode='additive', prior_scale=10,
+                                standardize='auto')
         else:
-            model.add_regressor(regressor, mode='additive', prior_scale=reg_prior_scale)
+            model.add_regressor(regressor, mode='additive', prior_scale=reg_prior_scale,
+                                standardize='auto')
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -827,7 +843,7 @@ def train_prophet_model(
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods, freq="B")
     if default_params.get('growth') == 'logistic':
-        future['cap'] = max_calls * 1.1
+        future['cap'] = max_calls * 1.2
         future['floor'] = 0
 
     # Build full daily calendar covering the forecast horizon
@@ -971,7 +987,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                 # Add to model
                 # Use additive mode for stability
                 prior = 10 if regressor == 'post_policy' else reg_prior_scale
-                model.add_regressor(regressor, mode='additive', prior_scale=prior)
+                model.add_regressor(regressor, mode='additive', prior_scale=prior,
+                                    standardize='auto')
         
         _ensure_tbb_on_path()
         _fit_prophet_with_fallback(model, model_prophet_df)
@@ -1320,7 +1337,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         # Add regressors to the base model
         for feature in features:
             if feature.endswith('_flag') and feature in prophet_df.columns:
-                model_copy.add_regressor(feature, mode='additive', prior_scale=reg_prior_scale)
+                model_copy.add_regressor(feature, mode='additive', prior_scale=reg_prior_scale,
+                                         standardize='auto')
         
         _ensure_tbb_on_path()
         _fit_prophet_with_fallback(model_copy, train_df)
@@ -1373,7 +1391,9 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add remaining regressors
                 for other_feature in [f for f in features if f.endswith('_flag') and f != feature]:
                     if other_feature in test_df.columns:
-                        test_model.add_regressor(other_feature, mode='additive', prior_scale=reg_prior_scale)
+                        test_model.add_regressor(other_feature, mode='additive',
+                                                 prior_scale=reg_prior_scale,
+                                                 standardize='auto')
                 
                 _ensure_tbb_on_path()
                 _fit_prophet_with_fallback(test_model, test_df)
@@ -1423,7 +1443,9 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 # Add regressors
                 for other_feature in [f for f in features if f.endswith('_flag')]:
                     if other_feature in prophet_df.columns:
-                        test_model.add_regressor(other_feature, mode='additive', prior_scale=reg_prior_scale)
+                        test_model.add_regressor(other_feature, mode='additive',
+                                                 prior_scale=reg_prior_scale,
+                                                 standardize='auto')
                 
                 if quick_mode:
                     # Use the simplified validation approach
@@ -1975,15 +1997,43 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         f"{period} period, {horizon} horizon"
     )
 
-    df_cv = cross_validation(
-        model,
-        initial=initial,
-        period=period,
-        horizon=horizon,
-        parallel="processes",
-    )
-
-    df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
+    history = model.history.copy()
+    reg_info = model.extra_regressors.copy()
+    df_cv = None
+    lb_p = 0.0
+    attempts = 0
+    while True:
+        df_cv = cross_validation(
+            model,
+            initial=initial,
+            period=period,
+            horizon=horizon,
+            parallel="processes",
+        )
+        df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
+        residuals = df_cv['y'] - df_cv['yhat']
+        lb = acorr_ljungbox(residuals, lags=14, return_df=True)
+        lb_p = lb['lb_pvalue'].min()
+        if lb_p > 0.05 or attempts >= 2:
+            break
+        attempts += 1
+        new_scale = model.changepoint_prior_scale * 0.5
+        logger.info("Autocorrelation detected, refitting with changepoint_prior_scale=%s", new_scale)
+        model = Prophet(
+            growth=model.growth,
+            interval_width=model.interval_width,
+            seasonality_mode=model.seasonality_mode,
+            yearly_seasonality=model.yearly_seasonality,
+            weekly_seasonality=model.weekly_seasonality,
+            daily_seasonality=model.daily_seasonality,
+            changepoint_prior_scale=new_scale,
+            n_changepoints=model.n_changepoints,
+            holidays=model.holidays,
+        )
+        for name, info in reg_info.items():
+            model.add_regressor(name, **info)
+        _ensure_tbb_on_path()
+        _fit_prophet_with_fallback(model, history)
 
     if log_transform:
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
