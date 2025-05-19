@@ -3,6 +3,8 @@ import math
 from datetime import datetime, date, timedelta
 from types import SimpleNamespace
 
+__version__ = "1.5.3"
+
 __all__ = [
     'DataFrame',
     'Series',
