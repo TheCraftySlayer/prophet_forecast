@@ -36,6 +36,7 @@ import matplotlib
 matplotlib.use("Agg")  # ensure headless backend for multiprocessing safety
 import pandas as pd
 import numpy as np
+import statsmodels
 import itertools
 from datetime import date, datetime
 import matplotlib.pyplot as plt
@@ -50,6 +51,16 @@ import pickle
 import random
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.feature_selection import mutual_info_regression
+
+# Check pandas/statsmodels compatibility before importing heavy submodules
+_PD_MAJOR = int(pd.__version__.split(".")[0])
+_SM_VERSION = tuple(int(p) for p in statsmodels.__version__.split(".")[:2])
+if _PD_MAJOR >= 2 and _SM_VERSION <= (0, 14):
+    raise ImportError(
+        "pandas>=2.0 is incompatible with statsmodels<=0.14. "
+        "Install pandas<2 or upgrade statsmodels."
+    )
+
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.diagnostic import acorr_ljungbox
 
