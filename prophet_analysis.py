@@ -16,6 +16,8 @@ Example usage::
         --handle-outliers winsorize --use-transformation false --skip-feature-importance
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
