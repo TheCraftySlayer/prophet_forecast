@@ -1,5 +1,9 @@
 from pathlib import Path
-from ruamel.yaml import YAML
+try:
+    from ruamel.yaml import YAML
+except Exception:  # pragma: no cover - optional dependency may be missing
+    import yaml
+    YAML = None
 from prophet_analysis import (
     prepare_data,
     prepare_prophet_data,
@@ -17,9 +21,14 @@ import logging
 
 
 def load_config(path: Path) -> dict:
-    yaml = YAML(typ="safe")
-    with open(path, "r") as f:
-        return yaml.load(f)
+    """Load YAML configuration using ruamel if available else PyYAML."""
+    if YAML is not None:
+        yaml_loader = YAML(typ="safe")
+        with open(path, "r") as f:
+            return yaml_loader.load(f)
+    else:  # Fallback to PyYAML
+        with open(path, "r") as f:
+            return yaml.safe_load(f)
 
 
 def pipeline(config_path: Path):
