@@ -1,4 +1,16 @@
 from pathlib import Path
+import os
+import sys
+
+# If the USE_REAL_LIBS environment variable is set, temporarily remove this
+# directory from ``sys.path`` so the real third-party packages are imported
+# instead of the lightweight stub modules bundled with the repository.
+_USE_REAL_LIBS = os.getenv("USE_REAL_LIBS") == "1"
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _USE_REAL_LIBS:
+    sys.path = [
+        p for p in sys.path if os.path.abspath(p or os.getcwd()) != _THIS_DIR
+    ]
 try:
     from ruamel.yaml import YAML
 except Exception:  # pragma: no cover - optional dependency may be missing
