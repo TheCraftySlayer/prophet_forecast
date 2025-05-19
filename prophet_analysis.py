@@ -46,7 +46,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.feature_selection import mutual_info_regression
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.diagnostic import acorr_ljungbox
-from pandas.tseries.holiday import USFederalHolidayCalendar
+from holidays_calendar import get_holidays_dataframe
 
 # Import Prophet
 try:
@@ -499,8 +499,10 @@ def prepare_data(call_path,
     logger.info(f"Creating unified date range from {start} to {end}")
     idx = pd.date_range(start=start, end=end, freq="B")
 
-    holiday_cal = USFederalHolidayCalendar()
-    holiday_dates = holiday_cal.holidays(start=idx.min(), end=idx.max())
+    holiday_df = get_holidays_dataframe()
+    mask = (holiday_df['event'] == 'county_holiday') & \
+           (holiday_df['date'] >= idx.min()) & (holiday_df['date'] <= idx.max())
+    holiday_dates = holiday_df.loc[mask, 'date']
     idx = idx.drop(holiday_dates)
 
     # Build main dataframe

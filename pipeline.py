@@ -16,7 +16,7 @@ from prophet_analysis import (
 )
 from datetime import datetime
 import pandas as pd
-from pandas.tseries.holiday import USFederalHolidayCalendar
+from holidays_calendar import get_holidays_dataframe
 import logging
 
 
@@ -66,8 +66,10 @@ def pipeline(config_path: Path):
     model_params.update(best_params)
 
     idx = df.index
-    holiday_cal = USFederalHolidayCalendar()
-    holiday_dates = holiday_cal.holidays(start=idx.min(), end=idx.max())
+    holiday_df = get_holidays_dataframe()
+    mask = (holiday_df['event'] == 'county_holiday') & \
+           (holiday_df['date'] >= idx.min()) & (holiday_df['date'] <= idx.max())
+    holiday_dates = holiday_df.loc[mask, 'date']
     deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq='MS')
     holidays = create_prophet_holidays(holiday_dates, deadline_dates, [])
 
