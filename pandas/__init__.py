@@ -1,10 +1,17 @@
 import csv
 import math
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from types import SimpleNamespace
 
 __all__ = [
-    'DataFrame', 'Series', 'DatetimeIndex', 'to_datetime', 'read_csv', 'api'
+    'DataFrame',
+    'Series',
+    'DatetimeIndex',
+    'to_datetime',
+    'read_csv',
+    'date_range',
+    'Timedelta',
+    'api',
 ]
 
 class DatetimeIndex:
@@ -422,6 +429,64 @@ def to_datetime(obj, errors='raise'):
         if d is None and errors == 'raise':
             raise ValueError(f'could not parse date {obj}')
         return d
+
+# ---------------------------------------------------------------------------
+# Additional helpers used by the forecast pipeline
+
+class Timedelta(timedelta):
+    """Minimal Timedelta implementation wrapping datetime.timedelta."""
+
+
+def date_range(start=None, end=None, periods=None, freq='D'):
+    """Generate a simple DatetimeIndex between start and end."""
+    if freq not in ['D', 'B', 'MS']:
+        raise ValueError('unsupported freq')
+    if periods is not None and end is None:
+        if start is None:
+            raise ValueError('start must be provided if end is None')
+        if freq == 'B':
+            dates = []
+            current = start
+            while len(dates) < periods:
+                if current.weekday() < 5:
+                    dates.append(current)
+                current += timedelta(days=1)
+        else:
+            step = timedelta(days=1)
+            if freq == 'MS':
+                current = start.replace(day=1)
+                step = None
+            dates = []
+            current_date = current
+            while len(dates) < periods:
+                dates.append(current_date)
+                if freq == 'MS':
+                    month = current_date.month + 1
+                    year = current_date.year + (month - 1) // 12
+                    month = (month - 1) % 12 + 1
+                    current_date = current_date.replace(year=year, month=month, day=1)
+                else:
+                    current_date += step
+        return DatetimeIndex(dates)
+
+    if start is None or end is None:
+        raise ValueError('start and end must be provided if periods is None')
+
+    dates = []
+    current = start
+    while current <= end:
+        if freq == 'B' and current.weekday() >= 5:
+            current += timedelta(days=1)
+            continue
+        dates.append(current)
+        if freq == 'MS':
+            month = current.month + 1
+            year = current.year + (month - 1) // 12
+            month = (month - 1) % 12 + 1
+            current = current.replace(year=year, month=month, day=1)
+        else:
+            current += timedelta(days=1)
+    return DatetimeIndex(dates)
 
 class _Types:
     @staticmethod
