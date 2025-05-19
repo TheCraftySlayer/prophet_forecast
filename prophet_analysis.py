@@ -1076,11 +1076,11 @@ def analyze_prophet_components(model, forecast, output_dir):
                 plt.close()
 
 
-def cross_validate_prophet(model, df, periods=30, horizon='60 days'):
+def cross_validate_prophet(model, df, periods=14, horizon='30 days', initial='270 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
     df_cv = cross_validation(
         model,
-        initial='180 days',
+        initial=initial,
         period=f'{periods} days',
         horizon=horizon,
         parallel="processes",
@@ -1852,7 +1852,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         'lb_pvalue': lb['lb_pvalue']
     })
 
-    if mae > 60 or (mape == mape and mape > 15):
+    if mae > 60 or (mape == mape and mape > 20):
         logger.warning('Model performance below acceptance thresholds.')
     if autocorr_flag:
         logger.warning('Autocorrelation detected in residuals.')

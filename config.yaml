@@ -15,6 +15,6 @@ model:
   yearly_seasonality: false
   daily_seasonality: false
 cross_validation:
-  initial: '365 days'
-  period: '30 days'
+  initial: '270 days'
+  period: '14 days'
   horizon: '30 days'
