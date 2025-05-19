@@ -54,11 +54,10 @@ from sklearn.feature_selection import mutual_info_regression
 
 # Check pandas/statsmodels compatibility before importing heavy submodules
 _PD_MAJOR = int(pd.__version__.split(".")[0])
-_SM_VERSION = tuple(int(p) for p in statsmodels.__version__.split(".")[:2])
-if _PD_MAJOR >= 2 and _SM_VERSION <= (0, 14):
+_SM_VERSION = tuple(int(p) for p in statsmodels.__version__.split(".")[:3])
+if _PD_MAJOR >= 2 and _SM_VERSION < (0, 14, 2):
     raise ImportError(
-        "pandas>=2.0 is incompatible with statsmodels<=0.14. "
-        "Install pandas<2 or upgrade statsmodels."
+        "pandas>=2.0 requires statsmodels>=0.14.2 or pandas<2 must be installed."
     )
 
 from statsmodels.stats.outliers_influence import variance_inflation_factor
