@@ -35,6 +35,8 @@ import logging
 import argparse
 from functools import lru_cache
 from pathlib import Path
+import tempfile
+import re
 import glob
 import pickle
 import random
@@ -113,6 +115,65 @@ def drop_collinear_features(df: pd.DataFrame, threshold: float = 0.9) -> pd.Data
         logger.info("Dropping collinear features: %s", to_drop)
         df = df.drop(columns=to_drop)
     return df
+
+
+def compile_custom_stan_model(likelihood: str) -> Path | None:
+    """Compile Prophet's Stan model with a custom likelihood.
+
+    Parameters
+    ----------
+    likelihood : str
+        Either ``"poisson"`` or ``"neg_binomial"``.
+
+    Returns
+    -------
+    Path | None
+        Path to the compiled model on success, otherwise ``None``.
+    """
+    logger = logging.getLogger(__name__)
+
+    if not _HAVE_PROPHET:
+        logger.warning("Prophet package not installed; cannot compile custom Stan model")
+        return None
+
+    try:
+        import importlib.resources as pkg_resources
+        model_text = pkg_resources.files('prophet').joinpath('stan/model.stan').read_text()
+    except Exception as e:  # pragma: no cover - environment may lack prophet
+        logger.warning(f"Failed to load Prophet model.stan: {e}")
+        return None
+
+    if likelihood == 'poisson':
+        model_text = model_text.replace('normal_lpdf(y', 'poisson_log_lpmf(y')
+    elif likelihood in {'neg_binomial', 'negative-binomial', 'negative_binomial'}:
+        if 'phi' not in model_text:
+            model_text = model_text.replace('real sigma;', 'real<lower=0> phi;\n  real sigma;')
+        model_text = model_text.replace('normal_lpdf(y', 'neg_binomial_2_log_lpmf(y')
+    else:
+        logger.warning("Unsupported likelihood: %s", likelihood)
+        return None
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    stan_path = tmp_dir / 'model.stan'
+    compiled_path = tmp_dir / 'model.pkl'
+    with open(stan_path, 'w') as f:
+        f.write(model_text)
+
+    try:
+        # prophet.serialize --compile model.stan model.pkl
+        import subprocess
+        subprocess.check_call([
+            sys.executable,
+            '-m',
+            'prophet.serialize',
+            '--compile',
+            str(stan_path),
+            str(compiled_path),
+        ])
+        return compiled_path
+    except Exception as e:  # pragma: no cover - compilation may fail on CI
+        logger.warning(f"Failed to compile custom Stan model: {e}")
+        return None
 def tune_prophet_hyperparameters(prophet_df):
     """Find optimal Prophet hyperparameters using grid search"""
     logger = logging.getLogger(__name__)
@@ -568,6 +629,7 @@ def train_prophet_model(
     future_periods=30,
     model_params=None,
     log_transform=False,
+    likelihood="normal",
 ):
     """
     Train Prophet model with custom components
@@ -578,6 +640,8 @@ def train_prophet_model(
         regressors_df: DataFrame with regressor variables
         future_periods: Number of days to forecast
         model_params: Optional dictionary of parameters to pass to Prophet
+        likelihood: Distribution for the likelihood ('normal', 'poisson',
+            or 'neg_binomial')
         
     Returns:
         Trained Prophet model, forecast DataFrame, future DataFrame
@@ -618,7 +682,24 @@ def train_prophet_model(
     prophet_df['cap'] = max_calls * 1.1
     prophet_df['floor'] = 0
 
+    custom_model_path = None
+    if likelihood != "normal":
+        custom_model_path = compile_custom_stan_model(likelihood)
+        if custom_model_path:
+            logger.info("Compiled custom Stan model for %s likelihood", likelihood)
+        else:
+            logger.warning("Falling back to normal likelihood")
+
     model = Prophet(**default_params)
+
+    if custom_model_path:
+        try:
+            with open(custom_model_path, "rb") as f:
+                compiled_model = pickle.load(f)
+            if hasattr(model, "stan_backend") and hasattr(model.stan_backend, "stan_model"):
+                model.stan_backend.stan_model = compiled_model
+        except Exception as e:  # pragma: no cover - prophet may be missing
+            logger.warning(f"Could not attach custom Stan model: {e}")
     
 
     # Drop collinear regressors first
@@ -1999,6 +2080,12 @@ def main(argv=None):
         action="store_true",
         help="Run full cross-validation after training",
     )
+    parser.add_argument(
+        "--likelihood",
+        choices=["normal", "poisson", "neg_binomial"],
+        default="normal",
+        help="Likelihood function to use for Prophet",
+    )
 
     args = parser.parse_args(argv)
 
@@ -2012,6 +2099,7 @@ def main(argv=None):
     use_transformation = str(args.use_transformation).lower() == "true"
     skip_feature_importance = args.skip_feature_importance
     run_cross_validation = args.cross_validate
+    likelihood = args.likelihood
 
     # Check if files exist
     for p in [call_path, visit_path, chat_path]:
@@ -2133,6 +2221,7 @@ def main(argv=None):
             future_periods=30,
             model_params=best_params,
             log_transform=use_transformation,
+            likelihood=likelihood,
         )
         
         # Try to create ensemble model, but continue with single model if it fails

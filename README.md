@@ -48,16 +48,18 @@ python prophet_analysis.py calls.csv visitors.csv queries.csv output_dir
 
 ### Optional arguments
 
- - `--handle-outliers METHOD` – handle detected outliers using `winsorize`, `prediction_replace` or `interpolate`.
- - `--use-transformation BOOL` – apply a `log1p` transformation to the target before modeling and back‑transform predictions (`true` or `false`).
+- `--handle-outliers METHOD` – handle detected outliers using `winsorize`, `prediction_replace` or `interpolate`.
+- `--use-transformation BOOL` – apply a `log1p` transformation to the target before modeling and back‑transform predictions (`true` or `false`).
 - `--skip-feature-importance` – skip the feature importance analysis step.
 - `--cross-validate` – run full Prophet cross-validation after training.
+- `--likelihood` – choose the likelihood for the underlying Stan model (`normal`, `poisson`, or `neg_binomial`).
 
 For example:
 
 ```bash
 python prophet_analysis.py calls.csv visitors.csv queries.csv prophet_results \
-    --handle-outliers winsorize --use-transformation false --cross-validate
+    --handle-outliers winsorize --use-transformation false --cross-validate \
+    --likelihood poisson
 ```
 
 ### Data exclusions
@@ -84,6 +86,7 @@ hyperparameters are:
 - `changepoint_prior_scale=0.05`
 - `holidays_prior_scale=5`
 - `regressor_prior_scale=0.05`
+- `likelihood=normal`
 
 You can modify these settings in `config.yaml` if desired.
 
