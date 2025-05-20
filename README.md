@@ -73,6 +73,18 @@ The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
 parameters continue to be read from `config.yaml`. The command simply overrides
 the input and output paths before calling the pipeline.
 
+### Data pipeline
+
+To run only the preprocessing step and export a single CSV with engineered
+features, use `data_pipeline.py`:
+
+```bash
+python data_pipeline.py calls.csv visitors.csv queries.csv --out features.csv
+```
+
+This merges the raw files on a business-day index and adds dummy flags for
+holidays, notice mail-outs and the May 2025 campaign period.
+
 ### Data exclusions
 
 The preprocessing step removes weekends and county holiday closures from the
