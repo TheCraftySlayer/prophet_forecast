@@ -565,18 +565,25 @@ def prepare_data(call_path,
     try:
         df['call_count'] = df['call_count'].interpolate(method='spline', order=3)
     except Exception:
-        df['call_count'] = df['call_count'].interpolate()
-    df['call_count'] = df['call_count'].astype(float)
+        df["call_count"] = df["call_count"].interpolate()
+    df["call_count"] = df["call_count"].astype(float)
 
     # Recalculate weekday means after cleaning
-    weekday_means = df.loc[df.index.dayofweek < 5, 'call_count'].groupby(df.index.dayofweek).mean()
+    weekday_mask = df.index.dayofweek < 5
+    weekday_means = (
+        df.loc[weekday_mask, "call_count"]
+        .groupby(df.index.dayofweek[weekday_mask])
+        .mean()
+    )
     if not weekday_means.empty:
         monday_spike = weekday_means.get(0, 0) - weekday_means.drop(0).mean()
         logger.info(f"Monday spike magnitude: {monday_spike:.1f}")
 
     # Flag events before outlier handling
-    deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq='MS')
-    notice_dates = [pd.Timestamp(year, 3, 1) for year in range(idx.min().year, idx.max().year + 1)]
+    deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq="MS")
+    notice_dates = [
+        pd.Timestamp(year, 3, 1) for year in range(idx.min().year, idx.max().year + 1)
+    ]
     df['federal_holiday_flag'] = df.index.isin(holiday_dates).astype(int)
     df['deadline_flag'] = 0
     df['notice_flag'] = 0
@@ -648,12 +655,6 @@ def prepare_data(call_path,
     mask_flat = (df.index >= flat_start) & (df.index <= flat_end)
     if mask_flat.any():
         df = df.loc[~mask_flat]
-
-
-
-
-
-
 
     # Create regressors dataframe for Prophet
     regressors = df.copy()
@@ -2272,7 +2273,6 @@ def create_prophet_dashboard(model, forecast, df, output_dir):
         plt.close()
     
     logger.info(f"Dashboard created in {output_dir}")
-
 
 
 def main(argv=None):
