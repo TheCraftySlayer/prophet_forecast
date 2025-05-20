@@ -2,6 +2,10 @@
 
 This project forecasts customer service call volume using [Prophet](https://github.com/facebook/prophet). It merges historical call, visitor and chatbot query data and trains a forecasting model. The script also produces diagnostic charts and exports predictions for upcoming business days. In addition to visitor and query counts, the model now includes explicit flags for notice-of-value mail-outs, assessment deadlines, county holidays and a short campaign period. Prophet's built‑in yearly and weekly seasonalities are disabled in favor of these custom regressors.
 
+## Disclaimer
+
+This repository contains only synthetic demonstration data. The stub versions of `pandas`, `numpy` and other third-party libraries are included solely for unit testing. Install the real packages when running the forecast for actual analysis. The authors provide this project as-is without any warranty of accuracy or fitness for a particular purpose.
+
 ## Requirements
 
 - Python 3.10+ (tested with Python 3.13)
@@ -127,8 +131,7 @@ You can modify these settings in `config.yaml` if desired.
 ## Cross-validation discipline
 
 The model is evaluated using a rolling origin cross‑validation scheme.
-The default initial window spans 365 days with a 30‑day horizon and
-30‑day evaluation period. A model is accepted only if the mean absolute
+The default initial window spans 365 days with a 30-day horizon and updates every 7 days. A model is accepted only if the mean absolute
 error stays below 15% of the average call volume.
 
 ### Windows compatibility

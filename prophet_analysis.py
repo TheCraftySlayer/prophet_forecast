@@ -648,6 +648,8 @@ def prepare_data(call_path,
     regressors = df.copy()
 
     important_regs = [
+        "call_lag1",
+        "call_lag7",
         "visit_ma3",
         "chatbot_count",
         "deadline_flag",
