@@ -544,6 +544,14 @@ def prepare_data(call_path,
         "chatbot_count": chat.reindex(idx),
     }, index=idx)
 
+    # Fill missing chatbot counts before transformations
+    df["chatbot_count"] = (
+        df["chatbot_count"].interpolate()
+        .ffill()
+        .bfill()
+        .astype(float)
+    )
+
     df["is_weekend"] = (df.index.dayofweek >= 5).astype(int)
 
     # Flag zero-call weekdays and treat them as missing
