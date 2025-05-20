@@ -124,7 +124,7 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 POLICY_LOWER = True
 PROPHET_KWARGS = {
     "yearly_seasonality": False,
-    "weekly_seasonality": True,
+    "weekly_seasonality": False,
     "daily_seasonality": False,
 }
 
@@ -408,10 +408,7 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
     )
     df = df.dropna(subset=["date_parsed"])
 
-    # Drop weekends before further processing
-    df = df[df["date_parsed"].dt.dayofweek < 5]
-
-    # Return the time series
+    # Return the time series with all days
     return df.set_index("date_parsed")[value_col].sort_index()
 
 
@@ -543,25 +540,22 @@ def prepare_data(call_path,
     # Build main dataframe
     df = pd.DataFrame({
         "call_count": calls.reindex(idx),
-        "visit_count": visits.reindex(idx, fill_value=0),
-        "chatbot_count": chat.reindex(idx, fill_value=0),
+        "visit_count": visits.reindex(idx),
+        "chatbot_count": chat.reindex(idx),
     }, index=idx)
 
-    df["weekend_flag"] = (df.index.dayofweek >= 5).astype(int)
-
-    # Fill missing weekend values with zero but keep weekday NaNs
-    df.loc[df["weekend_flag"] == 1, "call_count"] = df.loc[
-        df["weekend_flag"] == 1, "call_count"
-    ].fillna(0.0)
+    df["is_weekend"] = (df.index.dayofweek >= 5).astype(int)
 
     # Flag zero-call weekdays and treat them as missing
     df['zero_call_flag'] = (
-        (df['call_count'] == 0) & (df['weekend_flag'] == 0)
+        (df['call_count'] == 0) & (df['is_weekend'] == 0)
     ).astype(int)
     df.loc[df['zero_call_flag'] == 1, 'call_count'] = np.nan
 
     df['missing_flag'] = df['call_count'].isna().astype(int)
-    df['call_count'] = df['call_count'].ffill(limit=1)
+    df.loc[df['is_weekend'] == 0, 'call_count'] = (
+        df.loc[df['is_weekend'] == 0, 'call_count'].ffill(limit=1)
+    )
     try:
         df['call_count'] = df['call_count'].interpolate(method='spline', order=3)
     except Exception:
@@ -584,7 +578,7 @@ def prepare_data(call_path,
     notice_dates = [
         pd.Timestamp(year, 3, 1) for year in range(idx.min().year, idx.max().year + 1)
     ]
-    df['federal_holiday_flag'] = df.index.isin(holiday_dates).astype(int)
+    df['county_holiday_flag'] = df.index.isin(holiday_dates).astype(int)
     df['deadline_flag'] = 0
     df['notice_flag'] = 0
     for d in deadline_dates:
@@ -604,14 +598,14 @@ def prepare_data(call_path,
     # Flag for targeted campaign between 2025-05-01 and 2025-06-02
     campaign_start = pd.Timestamp('2025-05-01')
     campaign_end = pd.Timestamp('2025-06-02')
-    df['campaign_may2025'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
+    df['is_campaign'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
 
     # Indicator for business days (0 on weekends and county holidays)
     df['is_business_day'] = (
         (df.index.dayofweek < 5) & ~df.index.isin(holiday_dates)
     ).astype(int)
 
-    event_mask = (df['federal_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
+    event_mask = (df['county_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
     df['outlier_flag'] = ((z.abs() > 3) & ~event_mask).astype(int)
     df.loc[df['outlier_flag'] == 1, 'call_count'] = winsorize_quantile(
@@ -623,7 +617,7 @@ def prepare_data(call_path,
     df['call_count'] = winsorize_quantile(df['call_count'])
 
     # Remove intermediate quality flags
-    df = df.drop(columns=['zero_call_flag', 'missing_flag', 'weekend_flag'])
+    df = df.drop(columns=['zero_call_flag', 'missing_flag'])
 
     # Keep raw counts; z-scoring applied later
     # Feature engineering: lags and rolling stats for potential use as regressors
@@ -666,10 +660,10 @@ def prepare_data(call_path,
         "chatbot_count",
         "deadline_flag",
         "notice_flag",
-        "federal_holiday_flag",
+        "county_holiday_flag",
         "post_policy",
-        "campaign_may2025",
-        "is_business_day",
+        "is_campaign",
+        "is_weekend",
     ]
     regressors = regressors[important_regs]
 
@@ -822,7 +816,7 @@ def train_prophet_model(
         **prophet_kwargs,
         'seasonality_mode': 'additive',
         'n_changepoints': 25,
-        'changepoint_prior_scale': 0.4,
+        'changepoint_prior_scale': 0.05,
         'changepoint_range': 0.9,
         'changepoints': [
             pd.Timestamp('2023-11-01'),
@@ -832,7 +826,7 @@ def train_prophet_model(
         'seasonality_prior_scale': 0.01,
         'holidays_prior_scale': 5,
         'holidays': holidays_df,
-        'mcmc_samples': 0,
+        'mcmc_samples': 300,
         'uncertainty_samples': 300,
         'growth': 'linear',
         'interval_width': 0.8
@@ -860,6 +854,7 @@ def train_prophet_model(
             logger.warning("Falling back to normal likelihood")
 
     model = Prophet(**default_params)
+    model.add_seasonality(name='weekly', period=7, fourier_order=5, mode='additive')
 
     if custom_model_path:
         try:
@@ -879,12 +874,12 @@ def train_prophet_model(
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'campaign_may2025',
+        'is_campaign',
         'post_policy',
         'notice_flag',
         'deadline_flag',
-        'federal_holiday_flag',
-        'is_business_day',
+        'county_holiday_flag',
+        'is_weekend',
     ]
     
     for regressor in important_regressors:
@@ -912,14 +907,14 @@ def train_prophet_model(
 
     # Required regressors only
     future_regs['post_policy'] = (future_regs.index >= pd.Timestamp('2025-05-01')).astype(int)
-    future_regs['campaign_may2025'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
-                                       (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
+    future_regs['is_campaign'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
+                                   (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
-    future_regs['federal_holiday_flag'] = 0
-    future_regs['is_business_day'] = 1
+    future_regs['county_holiday_flag'] = 0
+    future_regs['is_weekend'] = (future_regs.index.dayofweek >= 5).astype(int)
 
     # Ensure float dtypes before merging to avoid warnings
     reg_cols = list(future_regs.columns)
@@ -1023,12 +1018,12 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'campaign_may2025',
+        'is_campaign',
         'post_policy',
         'notice_flag',
         'deadline_flag',
-        'federal_holiday_flag',
-        'is_business_day',
+        'county_holiday_flag',
+        'is_weekend',
     ]
     
     # Add regressors to each model and fit them
@@ -1366,12 +1361,12 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
     
     # Create versions of the data with one feature removed at a time
     features = [
-        'federal_holiday_flag',
+        'county_holiday_flag',
         'deadline_flag',
         'notice_flag',
         'visit_ma3',
         'chatbot_count',
-        'campaign_may2025',
+        'is_campaign',
         'yearly_seasonality',
         'weekly_seasonality'
     ]
@@ -2041,8 +2036,8 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         cv_params = {}
 
     initial = cv_params.get('initial', '365 days')
-    period = cv_params.get('period', '14 days')
-    horizon = cv_params.get('horizon', '14 days')
+    period = cv_params.get('period', '7 days')
+    horizon = cv_params.get('horizon', '30 days')
 
     logger = logging.getLogger(__name__)
     logger.info(
