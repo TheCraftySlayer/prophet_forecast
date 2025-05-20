@@ -78,6 +78,19 @@ The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
 parameters continue to be read from `config.yaml`. The command simply overrides
 the input and output paths before calling the pipeline.
 
+If your data resides in a SQLite database you can point the loader to the
+appropriate tables using a `path.db:table` notation in `config.yaml`:
+
+```yaml
+data:
+  calls: mydata.db:calls
+  visitors: mydata.db:visits
+  queries: mydata.db:queries
+```
+
+The pipeline detects the `.db` extension and automatically queries the database
+instead of reading CSV files.
+
 ### Data pipeline
 
 To run only the preprocessing step and export a single CSV with engineered

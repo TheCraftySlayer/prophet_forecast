@@ -4,6 +4,7 @@ import pandas as pd
 
 from prophet_analysis import (
     load_time_series as _load_time_series,
+    load_time_series_sqlite as _load_time_series_sqlite,
     verify_date_formats as _verify_date_formats,
     build_flag_series as _build_flag_series,
     prepare_data as _prepare_data,
@@ -15,6 +16,11 @@ from prophet_analysis import (
 def load_time_series(*args, **kwargs):
     """Proxy to :func:`prophet_analysis.load_time_series`."""
     return _load_time_series(*args, **kwargs)
+
+
+def load_time_series_sqlite(*args, **kwargs):
+    """Proxy to :func:`prophet_analysis.load_time_series_sqlite`."""
+    return _load_time_series_sqlite(*args, **kwargs)
 
 
 def verify_date_formats(*args, **kwargs):
