@@ -8,11 +8,11 @@ holidays, notice-of-value mail-outs and other campaign periods. The result is
 written to a CSV file that can be used for modeling or further analysis.
 """
 
-from pathlib import Path
 import argparse
+from pathlib import Path
 
-from data_preparation import prepare_data
 import pipeline
+from data_preparation import prepare_data
 
 
 def main(calls: Path, visitors: Path, queries: Path, out_path: Path) -> None:

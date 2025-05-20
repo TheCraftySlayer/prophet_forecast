@@ -1,16 +1,16 @@
 """Utility functions for preparing data for Prophet models."""
 from pathlib import Path
-import pandas as pd
 
-from prophet_analysis import (
-    load_time_series as _load_time_series,
-    load_time_series_sqlite as _load_time_series_sqlite,
-    verify_date_formats as _verify_date_formats,
-    build_flag_series as _build_flag_series,
-    prepare_data as _prepare_data,
-    create_prophet_holidays as _create_prophet_holidays,
-    prepare_prophet_data as _prepare_prophet_data,
-)
+import pandas as pd
+from prophet_analysis import build_flag_series as _build_flag_series
+from prophet_analysis import \
+    create_prophet_holidays as _create_prophet_holidays
+from prophet_analysis import load_time_series as _load_time_series
+from prophet_analysis import \
+    load_time_series_sqlite as _load_time_series_sqlite
+from prophet_analysis import prepare_data as _prepare_data
+from prophet_analysis import prepare_prophet_data as _prepare_prophet_data
+from prophet_analysis import verify_date_formats as _verify_date_formats
 
 
 def load_time_series(*args, **kwargs):

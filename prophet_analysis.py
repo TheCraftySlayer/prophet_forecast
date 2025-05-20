@@ -33,30 +33,33 @@ if _USE_REAL_LIBS:
         if os.path.abspath(p or os.getcwd()) != _THIS_DIR
     ]
 import matplotlib
+
 if not hasattr(matplotlib, "use"):
     raise ImportError(
         "The bundled matplotlib stub was imported. "
         "Install the real matplotlib package and set USE_REAL_LIBS=1 to use it."
     )
 matplotlib.use("Agg")  # ensure headless backend for multiprocessing safety
-import pandas as pd
-import numpy as np
-import statsmodels
-import itertools
-from datetime import date, datetime
-import matplotlib.pyplot as plt
-import logging
 import argparse
-from functools import lru_cache
-import sqlite3
-from pathlib import Path
-import tempfile
-import re
 import glob
+import itertools
+import logging
 import pickle
 import random
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+import re
+import sqlite3
+import tempfile
+from datetime import date, datetime
+from functools import lru_cache
+from pathlib import Path
+
+import numpy as np
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import statsmodels
 from sklearn.feature_selection import mutual_info_regression
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 # Check pandas/statsmodels compatibility before importing heavy submodules
 _PD_MAJOR = int(pd.__version__.split(".")[0])
@@ -66,8 +69,8 @@ if _PD_MAJOR >= 2 and _SM_VERSION < (0, 14, 2):
         "pandas>=2.0 requires statsmodels>=0.14.2 or pandas<2 must be installed."
     )
 
-from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tsa.arima.model import ARIMA
 
 # Import Prophet

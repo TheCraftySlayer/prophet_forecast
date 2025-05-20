@@ -1,6 +1,6 @@
 import csv
 import math
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 __version__ = "1.5.3"

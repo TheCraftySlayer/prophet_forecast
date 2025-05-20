@@ -1,5 +1,6 @@
 from math import sqrt
 
+
 def mean_squared_error(y_true, y_pred, squared=True):
     if not y_true:
         return 0.0
