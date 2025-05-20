@@ -4,7 +4,7 @@ This project forecasts customer service call volume using [Prophet](https://gith
 
 ## Disclaimer
 
-This repository contains only synthetic demonstration data. The stub versions of `pandas`, `numpy` and other third-party libraries are included solely for unit testing. Install the real packages when running the forecast for actual analysis. The authors provide this project as-is without any warranty of accuracy or fitness for a particular purpose.
+This repository contains only synthetic demonstration data. It ships with stub versions of `pandas`, a minimal `numpy_stub` module and a few other third‑party libraries for unit testing only. Install the real packages when running the forecast for actual analysis. The authors provide this project as-is without any warranty of accuracy or fitness for a particular purpose.
 
 ## Requirements
 
@@ -40,7 +40,7 @@ python -m pip install "pandas<2.0"
 ### Stub libraries
 
 For testing purposes the repository contains lightweight stub versions of
-`pandas`, `numpy` and a few other libraries. They allow the unit tests to run
+`pandas`, a small `numpy_stub` module and a few other libraries. They allow the unit tests to run
 without installing the real dependencies. When running the forecasting script
 for real analysis you should ensure the actual packages are installed and tell
 the script to use them by setting the `USE_REAL_LIBS` environment variable to
