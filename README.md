@@ -141,6 +141,7 @@ hyperparameters are now tuned for a more flexible trend:
 - `uncertainty_samples=300`
 - `regressor_prior_scale=0.05`
 - `likelihood=normal`
+- `weekly_seasonality=true` to include Prophet's built-in weekly component
 
 You can modify these settings in `config.yaml` if desired.
 
