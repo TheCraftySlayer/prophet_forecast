@@ -76,8 +76,18 @@ def run_forecast(cfg: dict) -> None:
     df, regressors = prepare_data(call_path, visit_path, chat_path, scale_features=True)
     prophet_df = prepare_prophet_data(df)
 
+    prophet_kwargs = PROPHET_KWARGS.copy()
+    for key in [
+        "weekly_seasonality",
+        "yearly_seasonality",
+        "daily_seasonality",
+        "uncertainty_samples",
+    ]:
+        if key in cfg["model"]:
+            prophet_kwargs[key] = cfg["model"][key]
+
     best_params = tune_prophet_hyperparameters(
-        prophet_df, prophet_kwargs=PROPHET_KWARGS
+        prophet_df, prophet_kwargs=prophet_kwargs
     )
     model_params = {
         "seasonality_mode": cfg["model"]["seasonality_mode"],
@@ -116,7 +126,7 @@ def run_forecast(cfg: dict) -> None:
         regressors,
         future_periods=30,
         model_params=model_params,
-        prophet_kwargs=PROPHET_KWARGS,
+        prophet_kwargs=prophet_kwargs,
         log_transform=True,
         likelihood=cfg["model"].get("likelihood", "normal"),
     )
