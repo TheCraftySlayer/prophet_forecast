@@ -2,8 +2,7 @@
 
 This script reads ``calls.csv`` and produces predictions for the last
 14 days using the value from the same weekday in the prior week as the
-prediction. It also reports MAE, RMSE and MAPE to compare predictions
-to actual values.
+prediction. It reports MAE and RMSE to compare predictions to actual values.
 """
 import csv
 from datetime import datetime
@@ -50,11 +49,6 @@ for i in range(7, len(recent)):
 n = len(preds)
 mae = sum(abs(a - p) for a, p in zip(acts, preds)) / n
 rmse = sqrt(sum((a - p) ** 2 for a, p in zip(acts, preds)) / n)
-non_zero = [(a, p) for a, p in zip(acts, preds) if a != 0]
-if non_zero:
-    mape = sum(abs(a - p) / a for a, p in non_zero) / len(non_zero) * 100
-else:
-    mape = float('nan')
 
 print("date,predicted,actual")
 for d, p, a in zip(dates, preds, acts):
@@ -62,4 +56,3 @@ for d, p, a in zip(dates, preds, acts):
 
 print(f"MAE,{mae:.2f}")
 print(f"RMSE,{rmse:.2f}")
-print(f"MAPE,{mape:.2f}%")

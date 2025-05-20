@@ -11,15 +11,16 @@ model:
   n_changepoints: 25
   changepoint_range: 0.9
   regressor_prior_scale: 0.05
-  growth: linear
+  growth: logistic
   mcmc_samples: 300
-  interval_width: 0.8
+  interval_width: 0.95
   weekly_seasonality: false
   yearly_seasonality: auto
   daily_seasonality: false
   likelihood: poisson
+  weekly_incremental: true
   uncertainty_samples: 300
 cross_validation:
   initial: '365 days'
   period: '7 days'
-  horizon: '30 days'
+  horizon: '14 days'
