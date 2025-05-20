@@ -137,6 +137,16 @@ The model is evaluated using a rolling origin cross‑validation scheme.
 The default initial window spans 365 days with a 30-day horizon and updates every 7 days. A model is accepted only if the mean absolute
 error stays below 15% of the average call volume.
 
+### Scaling details
+
+The target series ``call_count`` is standardized prior to model fitting. Each
+run saves the fitted ``StandardScaler`` as ``call_scaler.pkl`` in the output
+directory. The pickle stores the mean and standard deviation used for the
+transformation. During evaluation and when exporting forecasts the predictions
+are inverse transformed so that metrics reflect the original call counts.
+When reusing the scaler ensure the underlying data distribution matches the
+stored parameters.
+
 ### Windows compatibility
 
 Prophet's diagnostics spawn multiple worker processes. On Windows the
