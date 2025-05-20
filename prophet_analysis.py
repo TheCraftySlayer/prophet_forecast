@@ -2051,7 +2051,8 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
             **PROPHET_KWARGS,
         )
         for name, info in reg_info.items():
-            model.add_regressor(name, **info)
+            allowed = {k: v for k, v in info.items() if k in {'prior_scale', 'mode', 'standardize'}}
+            model.add_regressor(name, **allowed)
         _ensure_tbb_on_path()
         _fit_prophet_with_fallback(model, history)
 
