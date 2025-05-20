@@ -616,8 +616,8 @@ def prepare_data(call_path,
     df['is_campaign'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
     df['campaign_May2025'] = df['is_campaign']
 
-    df['holiday'] = df['county_holiday_flag'].astype(int)
-    df['closure_flag'] = ((df['is_weekend'] == 1) | (df['holiday'] == 1)).astype(int)
+    df['holiday_flag'] = df['county_holiday_flag'].astype(int)
+    df['closure_flag'] = ((df['is_weekend'] == 1) | (df['holiday_flag'] == 1)).astype(int)
 
     # Indicator for business days (0 on weekends and county holidays)
     df['is_business_day'] = (
@@ -685,7 +685,7 @@ def prepare_data(call_path,
         "deadline_flag",
         "notice_flag",
         "county_holiday_flag",
-        "holiday",
+        "holiday_flag",
         "closure_flag",
         "post_policy",
         "is_campaign",
@@ -908,7 +908,7 @@ def train_prophet_model(
         'notice_flag',
         'deadline_flag',
         'county_holiday_flag',
-        'holiday',
+        'holiday_flag',
         'closure_flag',
         'is_weekend',
     ]
@@ -947,9 +947,9 @@ def train_prophet_model(
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
     future_regs['county_holiday_flag'] = 0
-    future_regs['holiday'] = future_regs.index.isin(holiday_dates).astype(int)
+    future_regs['holiday_flag'] = future_regs.index.isin(holiday_dates).astype(int)
     future_regs['is_weekend'] = (future_regs.index.dayofweek >= 5).astype(int)
-    future_regs['closure_flag'] = ((future_regs['is_weekend'] == 1) | (future_regs['holiday'] == 1)).astype(int)
+    future_regs['closure_flag'] = ((future_regs['is_weekend'] == 1) | (future_regs['holiday_flag'] == 1)).astype(int)
     future_regs['cap'] = 1000
 
     # Ensure float dtypes before merging to avoid warnings
@@ -1060,7 +1060,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         'notice_flag',
         'deadline_flag',
         'county_holiday_flag',
-        'holiday',
+        'holiday_flag',
         'closure_flag',
         'is_weekend',
     ]
