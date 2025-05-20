@@ -927,11 +927,16 @@ def train_prophet_model(
     logger.info("Fitting Prophet model")
     _ensure_tbb_on_path()
     _fit_prophet_with_fallback(model, prophet_df)
-    
+
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods, freq="B")
     future['cap'] = 1000
+
+    # Determine official holiday dates for future regressor flags
+    holiday_dates = pd.to_datetime(
+        holidays_df[holidays_df['holiday'] == 'holiday']['ds']
+    )
 
     # Build full daily calendar covering the forecast horizon
     full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='B')
