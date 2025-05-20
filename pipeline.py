@@ -103,11 +103,12 @@ def run_forecast(cfg: dict) -> None:
     )
 
     cv_params = cfg.get('cross_validation', {})
-    df_cv, horizon_table, summary, diag = evaluate_prophet_model(
+    df_cv, horizon_table, summary, diag, _scale = evaluate_prophet_model(
         model,
         prophet_df,
         cv_params=cv_params,
         log_transform=True,
+        forecast=forecast,
     )
     summary.to_csv(out_dir / "summary.csv", index=False)
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)

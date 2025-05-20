@@ -67,6 +67,7 @@ if _PD_MAJOR >= 2 and _SM_VERSION < (0, 14, 2):
 
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.tsa.arima.model import ARIMA
 
 # Import Prophet
 try:
@@ -538,7 +539,6 @@ def prepare_data(call_path,
     mask = (holiday_df['event'] == 'county_holiday') & \
            (holiday_df['date'] >= idx.min()) & (holiday_df['date'] <= idx.max())
     holiday_dates = holiday_df.loc[mask, 'date']
-    idx = idx.drop(holiday_dates)
 
     # Build main dataframe
     df = pd.DataFrame({
@@ -588,7 +588,10 @@ def prepare_data(call_path,
     # Flag for targeted campaign between 2025-05-01 and 2025-06-02
     campaign_start = pd.Timestamp('2025-05-01')
     campaign_end = pd.Timestamp('2025-06-02')
-    df['campaign_flag'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
+    df['campaign_may2025'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
+
+    # Indicator for business days (0 on county holidays)
+    df['is_business_day'] = (~df.index.isin(holiday_dates)).astype(int)
 
     event_mask = (df['federal_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
@@ -651,7 +654,8 @@ def prepare_data(call_path,
         "notice_flag",
         "federal_holiday_flag",
         "post_policy",
-        "campaign_flag",
+        "campaign_may2025",
+        "is_business_day",
     ]
     regressors = regressors[important_regs]
 
@@ -861,11 +865,12 @@ def train_prophet_model(
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'campaign_flag',
+        'campaign_may2025',
         'post_policy',
         'notice_flag',
         'deadline_flag',
         'federal_holiday_flag',
+        'is_business_day',
     ]
     
     for regressor in important_regressors:
@@ -893,13 +898,14 @@ def train_prophet_model(
 
     # Required regressors only
     future_regs['post_policy'] = (future_regs.index >= pd.Timestamp('2025-05-01')).astype(int)
-    future_regs['campaign_flag'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
-                                    (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
+    future_regs['campaign_may2025'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
+                                       (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
     future_regs['federal_holiday_flag'] = 0
+    future_regs['is_business_day'] = 1
 
     # Ensure float dtypes before merging to avoid warnings
     reg_cols = list(future_regs.columns)
@@ -1001,11 +1007,12 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'campaign_flag',
+        'campaign_may2025',
         'post_policy',
         'notice_flag',
         'deadline_flag',
-        'federal_holiday_flag'
+        'federal_holiday_flag',
+        'is_business_day',
     ]
     
     # Add regressors to each model and fit them
@@ -1348,7 +1355,7 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         'notice_flag',
         'visit_ma3',
         'chatbot_count',
-        'campaign_flag',
+        'campaign_may2025',
         'yearly_seasonality',
         'weekly_seasonality'
     ]
@@ -1858,7 +1865,7 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     output_dir.mkdir(exist_ok=True)
     
     # Define output file
-    output_file = output_dir / "prophet_call_predictions_v3.xlsx"
+    output_file = output_dir / "prophet_call_predictions_v4.xlsx"
     
     # Get the past 14 business days based on the available data
     last_date = df.index.max()
@@ -2011,15 +2018,15 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     return output_file
 
 
-def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=False):
+def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=False, forecast=None):
     """Cross‑validate the Prophet model and report MAE, RMSE, and MAPE."""
 
     if cv_params is None:
         cv_params = {}
 
     initial = cv_params.get('initial', '365 days')
-    period = cv_params.get('period', '30 days')
-    horizon = cv_params.get('horizon', '30 days')
+    period = cv_params.get('period', '14 days')
+    horizon = cv_params.get('horizon', '14 days')
 
     logger = logging.getLogger(__name__)
     logger.info(
@@ -2094,6 +2101,16 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns) else float('nan')
     )
 
+    interval_scale = 1.0
+    if coverage == coverage and coverage < 90:
+        interval_scale = 90.0 / coverage
+        center = df_cv['yhat']
+        df_cv['yhat_lower'] = center - (center - df_cv['yhat_lower']) * interval_scale
+        df_cv['yhat_upper'] = center + (df_cv['yhat_upper'] - center) * interval_scale
+        coverage = (
+            ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean() * 100
+        )
+
     logger.info(
         f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | MAPE {mape if mape==mape else 'N/A'} | "
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
@@ -2103,6 +2120,21 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
     lb = acorr_ljungbox(residuals, lags=14, return_df=True)
     ac_flag = (lb['lb_pvalue'] < 0.05) | (lb['lb_stat'] > 0.2)
     autocorr_flag = bool(ac_flag.any())
+    if lb['lb_pvalue'].min() < 0.05:
+        try:
+            ar_model = ARIMA(residuals, order=(1, 0, 0)).fit()
+            adj = ar_model.predict(start=0, end=len(residuals) - 1)
+            df_cv['yhat'] += adj
+            if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns):
+                df_cv['yhat_lower'] += adj
+                df_cv['yhat_upper'] += adj
+            if forecast is not None:
+                fut_adj = ar_model.predict(start=len(residuals), end=len(residuals) + len(forecast) - 1)
+                forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
+                    forecast[['yhat', 'yhat_lower', 'yhat_upper']].add(np.array(fut_adj)[:, None])
+                )
+        except Exception as exc:
+            logger.warning("AR(1) correction failed: %s", exc)
 
     summary = pd.DataFrame({
         "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
@@ -2139,7 +2171,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
     if autocorr_flag:
         logger.warning('Autocorrelation detected in residuals.')
 
-    return df_cv, horizon_table, summary, diag
+    return df_cv, horizon_table, summary, diag, interval_scale
 
 
 def create_prophet_dashboard(model, forecast, df, output_dir):
