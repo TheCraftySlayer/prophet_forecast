@@ -109,9 +109,10 @@ stabilize variance and then back‑transforms predictions to the original scale.
 
 The results, including forecasts and plots, will be saved in the specified output directory.
 The exported Excel report (`prophet_call_predictions_v3.xlsx`) now includes
-predictions for the previous 14 business days
-along with a forecast for the next business day. A naive baseline forecast for the
-same 14-day window and corresponding MAE, RMSE, and MAPE metrics are also included.
+predictions for the previous 14 business days along with a forecast for the next
+business day. A seasonal naive baseline forecast using the call volume from the
+same weekday in the prior week and the corresponding MAE, RMSE, and MAPE metrics
+are also included.
 
 ## Model specification
 

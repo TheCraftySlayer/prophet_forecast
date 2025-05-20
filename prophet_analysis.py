@@ -1766,10 +1766,10 @@ def analyze_press_release_impact_prophet(forecast, output_dir):
 
 
 def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Generate a naive forecast for the last 14 days and metrics.
+    """Generate a seasonal naive forecast for the last 14 days and metrics.
 
-    The naive approach simply uses the previous day's call count as the
-    prediction for the current day. This mirrors the lightweight logic in
+    The baseline now predicts each day using the call volume from the same
+    weekday in the prior week. This mirrors the lightweight logic in
     ``naive_forecast.py`` and avoids the need for additional packages.
 
     Parameters
@@ -1785,10 +1785,16 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     """
 
     df_sorted = df.sort_index()
-    recent = df_sorted["call_count"].iloc[-15:]
-    preds = recent.shift(1).dropna()
-    actual = recent.iloc[1:]
-    dates = actual.index
+    # Require at least one week of history beyond the evaluation window
+    if len(df_sorted) < 21:
+        raise ValueError(
+            "At least 21 days of data are required to compute the baseline"
+        )
+
+    recent = df_sorted["call_count"]
+    preds = recent.shift(7).iloc[-14:]
+    actual = recent.iloc[-14:]
+    dates = recent.index[-14:]
 
     result = pd.DataFrame({
         "date": dates,

@@ -1,8 +1,9 @@
-"""Naive forecast for call volumes using previous day's value.
+"""Seasonal naive forecast using last week's value.
 
-This script reads `calls.csv` and produces predictions for the last
-14 days using the value from the prior day as the prediction. It also
-reports MAE, RMSE and MAPE to compare predictions to actual values.
+This script reads ``calls.csv`` and produces predictions for the last
+14 days using the value from the same weekday in the prior week as the
+prediction. It also reports MAE, RMSE and MAPE to compare predictions
+to actual values.
 """
 import csv
 from datetime import datetime
@@ -32,14 +33,14 @@ with open('calls.csv') as f:
 # Ensure data is sorted by date
 rows.sort(key=lambda x: x[0])
 
-# Need one extra day for the first prediction
-recent = rows[-15:]
+# Need one week of extra history for the seasonal naive baseline
+recent = rows[-21:]
 
 preds = []
 acts = []
 dates = []
-for i in range(1, len(recent)):
-    pred = recent[i - 1][1]
+for i in range(7, len(recent)):
+    pred = recent[i - 7][1]
     actual = recent[i][1]
     preds.append(pred)
     acts.append(actual)
