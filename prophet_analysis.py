@@ -741,8 +741,15 @@ def create_prophet_holidays(holiday_dates, deadline_dates, closure_dates=None, p
         'upper_window': 0
     })
     
-    press_release_dates = press_release_dates or []
-    closure_dates = closure_dates or []
+    if press_release_dates is None:
+        press_release_dates = []
+    elif isinstance(press_release_dates, pd.DatetimeIndex):
+        press_release_dates = press_release_dates.to_list()
+
+    if closure_dates is None:
+        closure_dates = []
+    elif isinstance(closure_dates, pd.DatetimeIndex):
+        closure_dates = closure_dates.to_list()
 
     # Create press release DataFrame
     press_releases = pd.DataFrame({
