@@ -218,7 +218,15 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
 
     try:
         import importlib.resources as pkg_resources
-        model_text = pkg_resources.files('prophet').joinpath('stan/model.stan').read_text()
+        # The Prophet package stores its Stan source under ``stan/prophet.stan``.
+        # The previous path incorrectly referenced ``stan/model.stan`` which does
+        # not exist and led to a FileNotFoundError when attempting to compile a
+        # custom likelihood model.
+        model_text = (
+            pkg_resources.files("prophet")
+            .joinpath("stan/prophet.stan")
+            .read_text()
+        )
     except Exception as e:  # pragma: no cover - environment may lack prophet
         logger.warning(f"Failed to load Prophet model.stan: {e}")
         return None
