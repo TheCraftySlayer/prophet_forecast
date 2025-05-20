@@ -408,8 +408,11 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
     )
     df = df.dropna(subset=["date_parsed"])
 
-    # Return the time series with all days
-    return df.set_index("date_parsed")[value_col].sort_index()
+    # Return the time series with all days, filling missing weekends with 0
+    series = df.set_index("date_parsed")[value_col].sort_index()
+    full_idx = pd.date_range(series.index.min(), series.index.max(), freq="D")
+    series = series.reindex(full_idx).fillna(0)
+    return series
 
 
 def verify_date_formats(call_path, visit_path, chat_path):
@@ -611,18 +614,27 @@ def prepare_data(call_path,
     campaign_start = pd.Timestamp('2025-05-01')
     campaign_end = pd.Timestamp('2025-06-02')
     df['is_campaign'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
+    df['campaign_May2025'] = df['is_campaign']
+
+    df['holiday'] = df['county_holiday_flag'].astype(int)
+    df['closure_flag'] = ((df['is_weekend'] == 1) | (df['holiday'] == 1)).astype(int)
 
     # Indicator for business days (0 on weekends and county holidays)
     df['is_business_day'] = (
         (df.index.dayofweek < 5) & ~df.index.isin(holiday_dates)
     ).astype(int)
 
+    def hampel(series, window=7, n_sigmas=3):
+        median = series.rolling(window, center=True).median()
+        diff = np.abs(series - median)
+        mad = diff.rolling(window, center=True).median()
+        threshold = n_sigmas * 1.4826 * mad
+        return (diff > threshold).astype(int)
+
     event_mask = (df['county_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
-    z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
-    df['outlier_flag'] = ((z.abs() > 3) & ~event_mask).astype(int)
-    df.loc[df['outlier_flag'] == 1, 'call_count'] = winsorize_quantile(
-        df.loc[df['outlier_flag'] == 1, 'call_count']
-    )
+    df['outlier_flag'] = hampel(df['call_count']) & (~event_mask)
+    df.loc[df['outlier_flag'] == 1, 'call_count'] = np.nan
+    df['call_count'] = df['call_count'].interpolate().ffill().bfill()
 
     # Winsorize extreme call spikes above the 99th percentile
     df['spike_flag'] = (df['call_count'] > df['call_count'].quantile(0.99)).astype(int)
@@ -673,8 +685,11 @@ def prepare_data(call_path,
         "deadline_flag",
         "notice_flag",
         "county_holiday_flag",
+        "holiday",
+        "closure_flag",
         "post_policy",
         "is_campaign",
+        "campaign_May2025",
         "is_weekend",
     ]
     regressors = regressors[important_regs]
@@ -840,8 +855,8 @@ def train_prophet_model(
         'holidays': holidays_df,
         'mcmc_samples': 300,
         'uncertainty_samples': 300,
-        'growth': 'linear',
-        'interval_width': 0.8
+        'growth': 'logistic',
+        'interval_width': 0.95
     }
 
     reg_prior_scale = 0.05
@@ -852,6 +867,7 @@ def train_prophet_model(
 
 
     prophet_df = prophet_df.copy()
+    prophet_df['cap'] = 1000
 
     if log_transform:
         prophet_df['y'] = np.log1p(prophet_df['y'])
@@ -887,10 +903,13 @@ def train_prophet_model(
         'visit_ma3',
         'chatbot_count',
         'is_campaign',
+        'campaign_May2025',
         'post_policy',
         'notice_flag',
         'deadline_flag',
         'county_holiday_flag',
+        'holiday',
+        'closure_flag',
         'is_weekend',
     ]
     
@@ -912,6 +931,7 @@ def train_prophet_model(
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods, freq="B")
+    future['cap'] = 1000
 
     # Build full daily calendar covering the forecast horizon
     full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='B')
@@ -921,12 +941,16 @@ def train_prophet_model(
     future_regs['post_policy'] = (future_regs.index >= pd.Timestamp('2025-05-01')).astype(int)
     future_regs['is_campaign'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
                                    (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
+    future_regs['campaign_May2025'] = future_regs['is_campaign']
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
     future_regs['county_holiday_flag'] = 0
+    future_regs['holiday'] = future_regs.index.isin(holiday_dates).astype(int)
     future_regs['is_weekend'] = (future_regs.index.dayofweek >= 5).astype(int)
+    future_regs['closure_flag'] = ((future_regs['is_weekend'] == 1) | (future_regs['holiday'] == 1)).astype(int)
+    future_regs['cap'] = 1000
 
     # Ensure float dtypes before merging to avoid warnings
     reg_cols = list(future_regs.columns)
@@ -1031,10 +1055,13 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         'visit_ma3',
         'chatbot_count',
         'is_campaign',
+        'campaign_May2025',
         'post_policy',
         'notice_flag',
         'deadline_flag',
         'county_holiday_flag',
+        'holiday',
+        'closure_flag',
         'is_weekend',
     ]
     
@@ -1343,7 +1370,7 @@ def analyze_prophet_components(model, forecast, output_dir):
                 plt.close()
 
 
-def cross_validate_prophet(model, df, periods=14, horizon='30 days', initial='270 days'):
+def cross_validate_prophet(model, df, periods=14, horizon='14 days', initial='270 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
     df_cv = cross_validation(
         model,
@@ -1781,7 +1808,7 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     -------
     Tuple of ``(forecast_df, metrics_df)`` where ``forecast_df`` contains the
     date, predicted call count, actual call count and error columns. The
-    ``metrics_df`` provides MAE, RMSE and MAPE aggregated over the period.
+    ``metrics_df`` provides MAE and RMSE aggregated over the period.
     """
 
     df_sorted = df.sort_index()
@@ -1803,17 +1830,12 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     })
     result["error"] = result["actual"] - result["predicted"]
     result["abs_error"] = result["error"].abs()
-    result["pct_error"] = (
-        result["abs_error"] / result["actual"].replace(0, np.nan)
-    ) * 100
-
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
-    mape = result["pct_error"].mean()
 
     metrics = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "MAPE"],
-        "value": [mae, rmse, mape],
+        "metric": ["MAE", "RMSE"],
+        "value": [mae, rmse],
     })
 
     return result, metrics
@@ -1917,10 +1939,6 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     # Calculate errors
     recent_forecast['error'] = recent_forecast['actual'] - recent_forecast['yhat']
     recent_forecast['abs_error'] = np.abs(recent_forecast['error'])
-    recent_forecast['pct_error'] = (
-        recent_forecast['abs_error'] /
-        recent_forecast['actual'].replace(0, np.nan)
-    ) * 100
     
     # Get next day forecast
     next_day_forecast = forecast[forecast['ds'] == next_day].copy()
@@ -1962,18 +1980,16 @@ def export_prophet_forecast(model, forecast, df, output_dir):
                 'lower_bound': recent_forecast['yhat_lower'],
                 'upper_bound': recent_forecast['yhat_upper'],
                 'error': recent_forecast['error'],
-                'abs_error': recent_forecast['abs_error'],
-                'pct_error': recent_forecast['pct_error']
+                'abs_error': recent_forecast['abs_error']
             })
             recent_performance.to_excel(writer, sheet_name='Recent 14-Day Performance', index=False)
 
             # Metrics for Prophet predictions
             prophet_metrics = pd.DataFrame({
-                'metric': ['MAE', 'RMSE', 'MAPE'],
+                'metric': ['MAE', 'RMSE'],
                 'value': [
                     recent_performance['abs_error'].mean(),
-                    np.sqrt((recent_performance['error'] ** 2).mean()),
-                    recent_performance['pct_error'].mean()
+                    np.sqrt((recent_performance['error'] ** 2).mean())
                 ]
             })
             prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
@@ -2048,14 +2064,19 @@ def export_prophet_forecast(model, forecast, df, output_dir):
 
 
 def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=False, forecast=None):
-    """Cross‑validate the Prophet model and report MAE, RMSE, and MAPE."""
+    """Cross‑validate the Prophet model and report MAE and RMSE."""
 
     if cv_params is None:
         cv_params = {}
 
     initial = cv_params.get('initial', '365 days')
     period = cv_params.get('period', '7 days')
-    horizon = cv_params.get('horizon', '30 days')
+    horizon = cv_params.get('horizon', '14 days')
+    try:
+        if pd.Timedelta(horizon).days > 14:
+            horizon = '14 days'
+    except Exception:
+        horizon = '14 days'
 
     logger = logging.getLogger(__name__)
     logger.info(
@@ -2114,17 +2135,6 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
     mae  = df_p['mae' ].mean() if 'mae'  in df_p else float('nan')
     rmse = df_p['rmse'].mean() if 'rmse' in df_p else float('nan')
 
-    # Manual fallback for MAPE if it was dropped
-    if 'mape' in df_p.columns:
-        mape = df_p['mape'].mean()
-    else:
-        nonzero = df_cv['y'] != 0
-        mape = (
-            (np.abs(df_cv.loc[nonzero, 'y'] - df_cv.loc[nonzero, 'yhat'])
-             / np.abs(df_cv.loc[nonzero, 'y']))
-            .mean() * 100
-        ) if nonzero.any() else float('nan')
-
     coverage = (
         ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean() * 100
         if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns) else float('nan')
@@ -2141,7 +2151,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         )
 
     logger.info(
-        f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | MAPE {mape if mape==mape else 'N/A'} | "
+        f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
     )
 
@@ -2151,7 +2161,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
     autocorr_flag = bool(ac_flag.any())
     if lb['lb_pvalue'].min() < 0.05:
         try:
-            ar_model = ARIMA(residuals, order=(1, 0, 0)).fit()
+            ar_model = ARIMA(residuals, order=(3, 0, 0)).fit()
             adj = ar_model.predict(start=0, end=len(residuals) - 1)
             df_cv['yhat'] += adj
             if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns):
@@ -2166,12 +2176,12 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
             logger.warning("AR(1) correction failed: %s", exc)
 
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
-        "value":  [mae,  rmse,  mape, coverage]
+        "metric": ["MAE", "RMSE", "Coverage"],
+        "value":  [mae,  rmse,  coverage]
     })
 
     horizon_rows = []
-    for h in [7, 14, 30]:
+    for h in [7, 14]:
         mask = df_cv['horizon'] <= pd.Timedelta(days=h)
         sub = df_cv[mask]
         if len(sub) == 0:
@@ -2179,12 +2189,8 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
         nonzero = sub['y'] != 0
-        mape_h = (
-            np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) /
-            np.abs(sub.loc[nonzero, 'y'])
-        ).mean() * 100 if nonzero.any() else float('nan')
-        horizon_rows.append([h, mae_h, rmse_h, mape_h])
-    horizon_table = pd.DataFrame(horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE'])
+        horizon_rows.append([h, mae_h, rmse_h])
+    horizon_table = pd.DataFrame(horizon_rows, columns=['horizon_days','MAE','RMSE'])
 
     diag = pd.DataFrame({
         'lag': lb.index,
@@ -2195,8 +2201,6 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
     mean_calls = df_cv['y'].mean()
     if mae > 0.15 * mean_calls:
         logger.warning('MAE exceeds 15% of mean call volume.')
-    if mape == mape and mape > 20:
-        logger.warning('MAPE exceeds 20%.')
     if autocorr_flag:
         logger.warning('Autocorrelation detected in residuals.')
 

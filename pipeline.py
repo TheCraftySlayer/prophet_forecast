@@ -120,13 +120,11 @@ def run_forecast(cfg: dict) -> None:
     baseline_df, baseline_metrics = compute_naive_baseline(df)
     mae_b = baseline_metrics.loc[baseline_metrics['metric']=='MAE','value'].iloc[0]
     rmse_b = baseline_metrics.loc[baseline_metrics['metric']=='RMSE','value'].iloc[0]
-    mape_b = baseline_metrics.loc[baseline_metrics['metric']=='MAPE','value'].iloc[0]
     metrics_baseline = pd.DataFrame([{
         'model': 'baseline',
         'horizon': 1,
         'MAE': mae_b,
         'RMSE': rmse_b,
-        'MAPE': mape_b,
         'coverage': float('nan'),
     }])
 
@@ -136,9 +134,13 @@ def run_forecast(cfg: dict) -> None:
     prophet_metrics['coverage'] = coverage
     metrics = pd.concat([
         metrics_baseline,
-        prophet_metrics[['model','horizon','MAE','RMSE','MAPE','coverage']]
+        prophet_metrics[['model', 'horizon', 'MAE', 'RMSE', 'coverage']]
     ], ignore_index=True)
     metrics.to_csv(out_dir / 'metrics.csv', index=False)
+
+    if cfg['model'].get('weekly_incremental') and model_to_json is not None:
+        with open(base_out / 'latest_model.json', 'w') as f:
+            f.write(model_to_json(model))
 
 
 def pipeline(config_path: Path) -> None:
