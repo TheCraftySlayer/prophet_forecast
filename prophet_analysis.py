@@ -942,6 +942,8 @@ def train_prophet_model(
             logger.warning(
                 f"Found {future[col].isna().sum()} NaN values in {col} after merge"
             )
+            # Prophet cannot handle NaNs, so replace missing values with 0
+            future[col] = future[col].fillna(0)
     
     # Make forecast
     logger.info("Making forecast")
