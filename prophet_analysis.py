@@ -794,7 +794,11 @@ def prepare_prophet_data(df):
     if df['call_count'].isna().any():
         df = df.dropna(subset=['call_count'])
 
-    prophet_df = df.reset_index().rename(columns={'index': 'ds', 'call_count': 'y'})
+    prophet_df = (
+        df[['call_count']]
+        .reset_index()
+        .rename(columns={'index': 'ds', 'call_count': 'y'})
+    )
 
     return prophet_df
 
