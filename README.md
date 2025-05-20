@@ -79,6 +79,10 @@ To run only the preprocessing step and export a single CSV with engineered
 features, use `data_pipeline.py`:
 
 ```bash
+# use paths from config.yaml
+python data_pipeline.py --config config.yaml --out features.csv
+
+# or specify the CSV files directly
 python data_pipeline.py calls.csv visitors.csv queries.csv --out features.csv
 ```
 
