@@ -32,6 +32,7 @@ from modeling import (
 from prophet_analysis import (
     export_prophet_forecast,
     export_baseline_forecast,
+    PROPHET_KWARGS,
 )
 from datetime import datetime
 import pandas as pd
@@ -67,7 +68,7 @@ def run_forecast(cfg: dict) -> None:
     df, regressors = prepare_data(call_path, visit_path, chat_path, scale_features=True)
     prophet_df = prepare_prophet_data(df)
 
-    best_params = tune_prophet_hyperparameters(prophet_df)
+    best_params = tune_prophet_hyperparameters(prophet_df, prophet_kwargs=PROPHET_KWARGS)
     model_params = {
         'seasonality_mode': cfg['model']['seasonality_mode'],
         'seasonality_prior_scale': cfg['model']['seasonality_prior_scale'],
@@ -77,9 +78,6 @@ def run_forecast(cfg: dict) -> None:
         'changepoint_range': cfg['model'].get('changepoint_range', 0.8),
         'mcmc_samples': cfg['model']['mcmc_samples'],
         'interval_width': cfg['model'].get('interval_width', 0.8),
-        'weekly_seasonality': cfg['model']['weekly_seasonality'],
-        'yearly_seasonality': cfg['model']['yearly_seasonality'],
-        'daily_seasonality': cfg['model']['daily_seasonality'],
         'growth': cfg['model'].get('growth', 'linear'),
         'regressor_prior_scale': cfg['model'].get('regressor_prior_scale', 0.05),
     }
@@ -99,6 +97,7 @@ def run_forecast(cfg: dict) -> None:
         regressors,
         future_periods=30,
         model_params=model_params,
+        prophet_kwargs=PROPHET_KWARGS,
         log_transform=True,
         likelihood=cfg['model'].get('likelihood', 'normal'),
     )
