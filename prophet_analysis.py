@@ -533,7 +533,7 @@ def prepare_data(call_path,
     start = min(calls.index.min(), visits.index.min(), chat.index.min())
     end = max(calls.index.max(), visits.index.max(), chat.index.max())
     logger.info(f"Creating unified date range from {start} to {end}")
-    idx = pd.date_range(start=start, end=end, freq="B")
+    idx = pd.date_range(start=start, end=end, freq="D")
 
     holiday_df = get_holidays_dataframe()
     mask = (holiday_df['event'] == 'county_holiday') & \
@@ -544,11 +544,20 @@ def prepare_data(call_path,
     df = pd.DataFrame({
         "call_count": calls.reindex(idx),
         "visit_count": visits.reindex(idx, fill_value=0),
-        "chatbot_count": chat.reindex(idx, fill_value=0)
+        "chatbot_count": chat.reindex(idx, fill_value=0),
     }, index=idx)
 
-    # Flag zero-call days and treat as missing
-    df['zero_call_flag'] = (df['call_count'] == 0).astype(int)
+    df["weekend_flag"] = (df.index.dayofweek >= 5).astype(int)
+
+    # Fill missing weekend values with zero but keep weekday NaNs
+    df.loc[df["weekend_flag"] == 1, "call_count"] = df.loc[
+        df["weekend_flag"] == 1, "call_count"
+    ].fillna(0.0)
+
+    # Flag zero-call weekdays and treat them as missing
+    df['zero_call_flag'] = (
+        (df['call_count'] == 0) & (df['weekend_flag'] == 0)
+    ).astype(int)
     df.loc[df['zero_call_flag'] == 1, 'call_count'] = np.nan
 
     df['missing_flag'] = df['call_count'].isna().astype(int)
@@ -590,8 +599,10 @@ def prepare_data(call_path,
     campaign_end = pd.Timestamp('2025-06-02')
     df['campaign_may2025'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
 
-    # Indicator for business days (0 on county holidays)
-    df['is_business_day'] = (~df.index.isin(holiday_dates)).astype(int)
+    # Indicator for business days (0 on weekends and county holidays)
+    df['is_business_day'] = (
+        (df.index.dayofweek < 5) & ~df.index.isin(holiday_dates)
+    ).astype(int)
 
     event_mask = (df['federal_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     z = (df['call_count'] - df['call_count'].mean()) / df['call_count'].std()
@@ -605,7 +616,7 @@ def prepare_data(call_path,
     df['call_count'] = winsorize_quantile(df['call_count'])
 
     # Remove intermediate quality flags
-    df = df.drop(columns=['zero_call_flag', 'missing_flag'])
+    df = df.drop(columns=['zero_call_flag', 'missing_flag', 'weekend_flag'])
 
     # Keep raw counts; z-scoring applied later
     # Feature engineering: lags and rolling stats for potential use as regressors
