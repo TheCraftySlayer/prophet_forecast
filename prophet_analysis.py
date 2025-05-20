@@ -1804,7 +1804,7 @@ def analyze_press_release_impact_prophet(forecast, output_dir):
     return press_releases
 
 
-def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Generate a seasonal naive forecast for the last 14 days and metrics.
 
     The baseline now predicts each day using the call volume from the same
@@ -1818,9 +1818,11 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
     Returns
     -------
-    Tuple of ``(forecast_df, metrics_df)`` where ``forecast_df`` contains the
-    date, predicted call count, actual call count and error columns. The
-    ``metrics_df`` provides MAE and RMSE aggregated over the period.
+    Tuple of ``(forecast_df, metrics_df, horizon_df)`` where ``forecast_df``
+    contains the date, predicted call count, actual call count and error
+    columns. The ``metrics_df`` provides MAE, RMSE and Coverage aggregated over
+    the period. ``horizon_df`` contains horizon specific metrics for 1-, 7- and
+    14-day horizons.
     """
 
     df_sorted = df.sort_index()
@@ -1845,12 +1847,32 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
 
-    metrics = pd.DataFrame({
-        "metric": ["MAE", "RMSE"],
-        "value": [mae, rmse],
-    })
+    resid_std = result["error"].std(ddof=0)
+    result["lower"] = result["predicted"] - 1.96 * resid_std
+    result["upper"] = result["predicted"] + 1.96 * resid_std
+    coverage = (
+        ((result["actual"] >= result["lower"]) & (result["actual"] <= result["upper"]))
+        .mean()
+        * 100
+    )
 
-    return result, metrics
+    metrics = pd.DataFrame(
+        {
+            "metric": ["MAE", "RMSE", "Coverage"],
+            "value": [mae, rmse, coverage],
+        }
+    )
+
+    horizon_rows = []
+    for h in [1, 7, 14]:
+        if len(result) >= h:
+            sub = result.head(h)
+            mae_h = sub["abs_error"].mean()
+            rmse_h = np.sqrt((sub["error"] ** 2).mean())
+            horizon_rows.append([h, mae_h, rmse_h])
+    horizon_df = pd.DataFrame(horizon_rows, columns=["horizon_days", "MAE", "RMSE"])
+
+    return result, metrics, horizon_df
 
 
 def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
@@ -1879,7 +1901,7 @@ def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
     if df.empty:
         raise ValueError("Input DataFrame is empty; no baseline forecast to export.")
 
-    baseline_df, metrics = compute_naive_baseline(df)
+    baseline_df, metrics, _ = compute_naive_baseline(df)
     if baseline_df.empty:
         raise ValueError("Computed baseline forecast is empty; nothing to export.")
 
@@ -2224,14 +2246,13 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
     })
 
     horizon_rows = []
-    for h in [7, 14]:
+    for h in [1, 7, 14]:
         mask = df_cv['horizon'] <= pd.Timedelta(days=h)
         sub = df_cv[mask]
         if len(sub) == 0:
             continue
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
-        nonzero = sub['y'] != 0
         horizon_rows.append([h, mae_h, rmse_h])
     horizon_table = pd.DataFrame(horizon_rows, columns=['horizon_days','MAE','RMSE'])
 

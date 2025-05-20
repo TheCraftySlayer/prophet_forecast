@@ -125,16 +125,11 @@ def run_forecast(cfg: dict) -> None:
     export_prophet_forecast(model, forecast, df, out_dir, scaler=scaler)
     export_baseline_forecast(df, out_dir)
 
-    baseline_df, baseline_metrics = compute_naive_baseline(df)
-    mae_b = baseline_metrics.loc[baseline_metrics['metric']=='MAE','value'].iloc[0]
-    rmse_b = baseline_metrics.loc[baseline_metrics['metric']=='RMSE','value'].iloc[0]
-    metrics_baseline = pd.DataFrame([{
-        'model': 'baseline',
-        'horizon': 1,
-        'MAE': mae_b,
-        'RMSE': rmse_b,
-        'coverage': float('nan'),
-    }])
+    baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(df)
+    cov_b = baseline_metrics.loc[baseline_metrics['metric'] == 'Coverage', 'value'].iloc[0]
+    metrics_baseline = baseline_horizon.rename(columns={'horizon_days': 'horizon'}).copy()
+    metrics_baseline['model'] = 'baseline'
+    metrics_baseline['coverage'] = cov_b
 
     coverage = summary.loc[summary['metric']=='Coverage','value'].iloc[0]
     prophet_metrics = horizon_table.rename(columns={'horizon_days':'horizon'}).copy()
