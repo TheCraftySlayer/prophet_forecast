@@ -3,12 +3,8 @@ from unittest.mock import patch
 
 import pandas as pd
 from holidays_calendar import get_holidays_dataframe
-from prophet_analysis import (
-    create_prophet_holidays,
-    prepare_data,
-    prepare_prophet_data,
-    train_prophet_model,
-)
+from prophet_analysis import (create_prophet_holidays, prepare_data,
+                              prepare_prophet_data, train_prophet_model)
 from tests.test_pipeline_alignment import DummyProphet
 
 

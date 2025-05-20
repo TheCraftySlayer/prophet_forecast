@@ -28,20 +28,14 @@ import subprocess
 from datetime import datetime
 
 import pandas as pd
-from data_preparation import create_prophet_holidays, prepare_data, prepare_prophet_data
+from data_preparation import (create_prophet_holidays, prepare_data,
+                              prepare_prophet_data)
 from holidays_calendar import get_holidays_dataframe
-from modeling import (
-    evaluate_prophet_model,
-    train_prophet_model,
-    tune_prophet_hyperparameters,
-)
-from prophet_analysis import (
-    PROPHET_KWARGS,
-    compute_naive_baseline,
-    export_baseline_forecast,
-    export_prophet_forecast,
-    model_to_json,
-)
+from modeling import (evaluate_prophet_model, train_prophet_model,
+                      tune_prophet_hyperparameters)
+from prophet_analysis import (PROPHET_KWARGS, compute_naive_baseline,
+                              export_baseline_forecast,
+                              export_prophet_forecast, model_to_json)
 from sklearn.preprocessing import StandardScaler
 
 
