@@ -184,7 +184,9 @@ def winsorize_quantile(series, lower_q=0.01, upper_q=0.99):
     return series.clip(lower, upper)
 
 
-def drop_collinear_features(df: pd.DataFrame, threshold: float = 0.9) -> pd.DataFrame:
+def drop_collinear_features(
+    df: pd.DataFrame, threshold: float = 0.9, return_dropped: bool = False
+) -> pd.DataFrame | tuple[pd.DataFrame, list[str]]:
     """Drop highly collinear numeric features from the DataFrame."""
     logger = logging.getLogger(__name__)
     numeric_df = df.select_dtypes(include=np.number).drop(columns=['call_count'], errors='ignore')
@@ -194,6 +196,8 @@ def drop_collinear_features(df: pd.DataFrame, threshold: float = 0.9) -> pd.Data
     if to_drop:
         logger.info("Dropping collinear features: %s", to_drop)
         df = df.drop(columns=to_drop)
+    if return_dropped:
+        return df, to_drop
     return df
 
 
@@ -219,18 +223,19 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
 
     try:
         import importlib.resources as pkg_resources
-        # The Prophet package stores its Stan source under ``stan/prophet.stan``.
-        # The previous path incorrectly referenced ``stan/model.stan`` which does
-        # not exist and led to a FileNotFoundError when attempting to compile a
-        # custom likelihood model.
         model_text = (
             pkg_resources.files("prophet")
             .joinpath("stan/prophet.stan")
             .read_text()
         )
     except Exception as e:  # pragma: no cover - environment may lack prophet
-        logger.warning(f"Failed to load Prophet model.stan: {e}")
-        return None
+        local_stan = Path(__file__).with_name("prophet.stan")
+        if local_stan.exists():
+            logger.info("Using bundled prophet.stan")
+            model_text = local_stan.read_text()
+        else:
+            logger.warning(f"Failed to load Prophet model.stan: {e}")
+            return None
 
     if likelihood == 'poisson':
         model_text = model_text.replace('normal_lpdf(y', 'poisson_log_lpmf(y')
@@ -898,8 +903,8 @@ def train_prophet_model(
             logger.warning(f"Could not attach custom Stan model: {e}")
     
 
-    # Drop collinear regressors first
-    regressors_df = drop_collinear_features(regressors_df)
+    # Drop collinear regressors first and capture removed columns
+    regressors_df, dropped_cols = drop_collinear_features(regressors_df, return_dropped=True)
 
     # Restrict regressors to mitigate collinearity
     # Use standardized raw visitor and chatbot counts
@@ -917,6 +922,8 @@ def train_prophet_model(
         'call_lag1',
         'call_lag7',
     ]
+
+    important_regressors = [r for r in important_regressors if r not in dropped_cols]
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
@@ -963,6 +970,12 @@ def train_prophet_model(
     future_regs['closure_flag'] = ((future_regs['is_weekend'] == 1) | (future_regs['holiday_flag'] == 1)).astype(int)
     future_regs['cap'] = 1000
 
+    if 'call_lag1' in important_regressors:
+        future_regs['call_lag1'] = prophet_df['y'].iloc[-1]
+    if 'call_lag7' in important_regressors:
+        idx = -7 if len(prophet_df) >= 7 else 0
+        future_regs['call_lag7'] = prophet_df['y'].iloc[idx]
+
     # Ensure float dtypes before merging to avoid warnings
     reg_cols = list(future_regs.columns)
     future_regs[reg_cols] = future_regs[reg_cols].astype("float64")
@@ -974,8 +987,14 @@ def train_prophet_model(
             mask = known[col].notna()
             future_regs.loc[mask, col] = known.loc[mask, col]
 
+    if dropped_cols:
+        future_regs.drop(columns=[c for c in dropped_cols if c in future_regs.columns], inplace=True)
+
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
+
+    if dropped_cols:
+        future.drop(columns=[c for c in dropped_cols if c in future.columns], inplace=True)
 
     # Ensure the logistic growth capacity column survives the merge
     if "cap_x" in future.columns:
@@ -986,13 +1005,22 @@ def train_prophet_model(
 
 
     # Basic sanity check for merged regressors
-    for col in future_regs.columns:
+    check_cols = [
+        'post_policy', 'is_campaign', 'campaign_May2025', 'visit_ma3',
+        'chatbot_count', 'notice_flag', 'deadline_flag', 'county_holiday_flag',
+        'holiday_flag', 'closure_flag'
+    ]
+    for col in check_cols:
         if col in future.columns and future[col].isna().any():
             logger.warning(
                 f"Found {future[col].isna().sum()} NaN values in {col} after merge"
             )
-            # Prophet cannot handle NaNs, so replace missing values with 0
             future[col] = future[col].fillna(0)
+
+    train_cols = set(prophet_df.columns) - {'y', 'ds'}
+    future_cols = set(future.columns)
+    if train_cols != future_cols:
+        raise ValueError(f"Feature mismatch between training and future data: {train_cols ^ future_cols}")
     
     # Make forecast
     logger.info("Making forecast")
