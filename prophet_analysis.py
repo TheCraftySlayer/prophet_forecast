@@ -116,7 +116,7 @@ try:
     from prophet.serialize import model_to_json
     _HAVE_SERIALIZE = True
 except Exception:  # pragma: no cover - optional dependency may be missing
-_HAVE_SERIALIZE = False
+    _HAVE_SERIALIZE = False
     model_to_json = None
 
 # Global tuning options
