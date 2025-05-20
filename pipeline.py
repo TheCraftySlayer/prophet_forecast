@@ -23,7 +23,6 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 import hashlib
 import json
 import logging
-import pickle
 import subprocess
 from datetime import datetime
 
@@ -36,7 +35,6 @@ from modeling import (evaluate_prophet_model, train_prophet_model,
 from prophet_analysis import (PROPHET_KWARGS, compute_naive_baseline,
                               export_baseline_forecast,
                               export_prophet_forecast, model_to_json)
-from sklearn.preprocessing import StandardScaler
 
 
 def _checksum(path: Path) -> str:
@@ -76,12 +74,7 @@ def run_forecast(cfg: dict) -> None:
     out_dir.mkdir(exist_ok=True)
 
     df, regressors = prepare_data(call_path, visit_path, chat_path, scale_features=True)
-    scaler = StandardScaler()
-    df_scaled = df.copy()
-    df_scaled["call_count"] = scaler.fit_transform(df[["call_count"]])
-    with open(out_dir / "call_scaler.pkl", "wb") as f:
-        pickle.dump(scaler, f)
-    prophet_df = prepare_prophet_data(df_scaled)
+    prophet_df = prepare_prophet_data(df)
 
     best_params = tune_prophet_hyperparameters(
         prophet_df, prophet_kwargs=PROPHET_KWARGS
@@ -109,7 +102,13 @@ def run_forecast(cfg: dict) -> None:
     )
     holiday_dates = holiday_df.loc[mask, "date"]
     deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq="MS")
-    holidays = create_prophet_holidays(holiday_dates, deadline_dates, [])
+    closure_dates = df.index[df.get("closure_flag", 0) == 1]
+    holidays = create_prophet_holidays(
+        holiday_dates,
+        deadline_dates,
+        closure_dates=closure_dates,
+        press_release_dates=[],
+    )
 
     model, forecast, future = train_prophet_model(
         prophet_df,
@@ -129,7 +128,7 @@ def run_forecast(cfg: dict) -> None:
         cv_params=cv_params,
         log_transform=True,
         forecast=forecast,
-        scaler=scaler,
+        scaler=None,
     )
     summary.to_csv(out_dir / "summary.csv", index=False)
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)

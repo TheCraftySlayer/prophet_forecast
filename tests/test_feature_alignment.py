@@ -30,7 +30,8 @@ def test_no_feature_mismatch_after_drop():
     holidays = create_prophet_holidays(
         holiday_df.loc[mask, 'date'],
         pd.date_range(df.index.min(), df.index.max(), freq='MS'),
-        []
+        closure_dates=[],
+        press_release_dates=[]
     )
     with patch('prophet_analysis.Prophet', DummyProphet), \
          patch('prophet_analysis.drop_collinear_features', side_effect=dropping_cols):

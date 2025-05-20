@@ -128,7 +128,7 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 POLICY_LOWER = True
 PROPHET_KWARGS = {
     "yearly_seasonality": False,
-    "weekly_seasonality": False,
+    "weekly_seasonality": True,
     "daily_seasonality": False,
 }
 
@@ -593,16 +593,7 @@ def prepare_data(call_path,
     df['zero_call_flag'] = (
         (df['call_count'] == 0) & (df['is_weekend'] == 0)
     ).astype(int)
-    df.loc[df['zero_call_flag'] == 1, 'call_count'] = np.nan
-
     df['missing_flag'] = df['call_count'].isna().astype(int)
-    df.loc[df['is_weekend'] == 0, 'call_count'] = (
-        df.loc[df['is_weekend'] == 0, 'call_count'].ffill(limit=1)
-    )
-    try:
-        df['call_count'] = df['call_count'].interpolate(method='spline', order=3)
-    except Exception:
-        df["call_count"] = df["call_count"].interpolate()
     df["call_count"] = df["call_count"].astype(float)
 
     # Interpolate and fill missing visit counts before creating rolling features
@@ -664,16 +655,13 @@ def prepare_data(call_path,
         threshold = n_sigmas * 1.4826 * mad
         return (diff > threshold).astype(int)
 
-    event_mask = (df['county_holiday_flag'] != 0) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
+    event_mask = (
+        df['county_holiday_flag'] != 0
+    ) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     df['outlier_flag'] = hampel(df['call_count']) & (~event_mask)
-    df.loc[df['outlier_flag'] == 1, 'call_count'] = np.nan
-    df['call_count'] = df['call_count'].interpolate().ffill().bfill()
-
-    # Winsorize extreme call spikes above the 99th percentile
     df['spike_flag'] = (df['call_count'] > df['call_count'].quantile(0.99)).astype(int)
-    df['call_count'] = winsorize_quantile(df['call_count'])
 
-    # Remove intermediate quality flags
+    # Keep intermediate quality flags for modeling
     df = df.drop(columns=['zero_call_flag', 'missing_flag'])
 
     # Keep raw counts; z-scoring applied later
@@ -711,19 +699,10 @@ def prepare_data(call_path,
     regressors = df.copy()
 
     important_regs = [
-        "call_lag1",
-        "call_lag7",
         "visit_ma3",
         "chatbot_count",
         "deadline_flag",
         "notice_flag",
-        "county_holiday_flag",
-        "holiday_flag",
-        "closure_flag",
-        "post_policy",
-        "is_campaign",
-        "campaign_May2025",
-        "is_weekend",
     ]
     regressors = regressors[important_regs]
 
@@ -740,7 +719,7 @@ def prepare_data(call_path,
 
     return df, regressors
 
-def create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates):
+def create_prophet_holidays(holiday_dates, deadline_dates, closure_dates=None, press_release_dates=None):
     """
     Create holiday DataFrame for Prophet model
     
@@ -762,6 +741,9 @@ def create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates):
         'upper_window': 0
     })
     
+    press_release_dates = press_release_dates or []
+    closure_dates = closure_dates or []
+
     # Create press release DataFrame
     press_releases = pd.DataFrame({
         'holiday': 'press_release',
@@ -769,9 +751,16 @@ def create_prophet_holidays(holiday_dates, deadline_dates, press_release_dates):
         'lower_window': 0,
         'upper_window': 3  # Effect may last for 3 days after press release
     })
+
+    closures = pd.DataFrame({
+        'holiday': 'closure',
+        'ds': pd.to_datetime(closure_dates),
+        'lower_window': 0,
+        'upper_window': 0
+    })
     
     # Combine all holiday DataFrames and remove duplicates
-    all_holidays = pd.concat([holidays, deadlines, press_releases])
+    all_holidays = pd.concat([holidays, deadlines, closures, press_releases])
     all_holidays = all_holidays.drop_duplicates(subset=['ds', 'holiday'])
 
     return all_holidays
@@ -883,7 +872,7 @@ def train_prophet_model(
         **prophet_kwargs,
         'seasonality_mode': 'additive',
         'n_changepoints': 25,
-        'changepoint_prior_scale': 0.2,
+        'changepoint_prior_scale': 0.05,
         'changepoint_range': 0.9,
         'changepoints': [
             pd.Timestamp('2023-11-01'),
@@ -896,7 +885,7 @@ def train_prophet_model(
         'mcmc_samples': 0,
         'uncertainty_samples': 300,
         'growth': 'logistic',
-        'interval_width': 0.95
+        'interval_width': 0.8
     }
 
     reg_prior_scale = 0.05
@@ -922,7 +911,6 @@ def train_prophet_model(
             logger.warning("Falling back to normal likelihood")
 
     model = Prophet(**default_params)
-    model.add_seasonality(name='weekly', period=7, fourier_order=5, mode='additive')
 
     if custom_model_path:
         try:
@@ -942,16 +930,8 @@ def train_prophet_model(
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'is_campaign',
-        'campaign_May2025',
-        'post_policy',
         'notice_flag',
         'deadline_flag',
-        'county_holiday_flag',
-        'holiday_flag',
-        'closure_flag',
-        'call_lag1',
-        'call_lag7',
     ]
 
     important_regressors = [r for r in important_regressors if r not in dropped_cols]
@@ -959,20 +939,12 @@ def train_prophet_model(
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
             prophet_df[regressor] = regressors_df[regressor].values
-            if regressor == 'post_policy':
-                model.add_regressor(
-                    regressor,
-                    mode='additive',
-                    prior_scale=10,
-                    standardize='auto',
-                )
-            else:
-                model.add_regressor(
-                    regressor,
-                    mode='additive',
-                    prior_scale=reg_prior_scale,
-                    standardize='auto',
-                )
+            model.add_regressor(
+                regressor,
+                mode='additive',
+                prior_scale=reg_prior_scale,
+                standardize='auto',
+            )
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -994,26 +966,11 @@ def train_prophet_model(
     future_regs = pd.DataFrame(index=full_dates)
 
     # Required regressors only
-    future_regs['post_policy'] = (future_regs.index >= pd.Timestamp('2025-05-01')).astype(int)
-    future_regs['is_campaign'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
-                                   (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
-    future_regs['is_campaign'] = future_regs['is_campaign'].shift(1).fillna(0).astype(int)
-    future_regs['campaign_May2025'] = future_regs['is_campaign']
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
-    future_regs['county_holiday_flag'] = 0
-    future_regs['holiday_flag'] = future_regs.index.isin(holiday_dates).astype(int)
-    future_regs['is_weekend'] = (future_regs.index.dayofweek >= 5).astype(int)
-    future_regs['closure_flag'] = ((future_regs['is_weekend'] == 1) | (future_regs['holiday_flag'] == 1)).astype(int)
     future_regs['cap'] = 1000
-
-    if 'call_lag1' in important_regressors:
-        future_regs['call_lag1'] = prophet_df['y'].iloc[-1]
-    if 'call_lag7' in important_regressors:
-        idx = -7 if len(prophet_df) >= 7 else 0
-        future_regs['call_lag7'] = prophet_df['y'].iloc[idx]
 
     # Ensure float dtypes before merging to avoid warnings
     reg_cols = list(future_regs.columns)
@@ -1045,9 +1002,7 @@ def train_prophet_model(
 
     # Basic sanity check for merged regressors
     check_cols = [
-        'post_policy', 'is_campaign', 'campaign_May2025', 'visit_ma3',
-        'chatbot_count', 'notice_flag', 'deadline_flag', 'county_holiday_flag',
-        'holiday_flag', 'closure_flag', 'call_lag1', 'call_lag7'
+        'visit_ma3', 'chatbot_count', 'notice_flag', 'deadline_flag'
     ]
     for col in check_cols:
         if col in future.columns and future[col].isna().any():
@@ -1147,16 +1102,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'is_campaign',
-        'campaign_May2025',
-        'post_policy',
         'notice_flag',
         'deadline_flag',
-        'county_holiday_flag',
-        'holiday_flag',
-        'closure_flag',
-        'call_lag1',
-        'call_lag7',
     ]
     
     # Add regressors to each model and fit them
@@ -1171,10 +1118,12 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
                 # Add the regressor to model_prophet_df
                 model_prophet_df[regressor] = regressors_df[regressor].values
                 # Add to model
-                # Use additive mode for stability
-                prior = 10 if regressor == 'post_policy' else reg_prior_scale
-                model.add_regressor(regressor, mode='additive', prior_scale=prior,
-                                    standardize='auto')
+                model.add_regressor(
+                    regressor,
+                    mode='additive',
+                    prior_scale=reg_prior_scale,
+                    standardize='auto',
+                )
         
         _ensure_tbb_on_path()
         _fit_prophet_with_fallback(model, model_prophet_df)
@@ -1214,13 +1163,16 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     # Safer method to calculate min/max without ambiguous Series truth value
     ensemble_forecast['yhat'] = sum(f['yhat'] for f in forecasts) / len(forecasts)
     
-    # Calculate lower and upper bounds
+    # Calculate lower and upper bounds using average across models
     lower_bounds = [f['yhat_lower'] for f in forecasts]
     upper_bounds = [f['yhat_upper'] for f in forecasts]
-    
-    # For each row, get the minimum lower bound and maximum upper bound
-    ensemble_forecast['yhat_lower'] = pd.concat(lower_bounds, axis=1).min(axis=1)
-    ensemble_forecast['yhat_upper'] = pd.concat(upper_bounds, axis=1).max(axis=1)
+
+    ensemble_forecast['yhat_lower'] = (
+        pd.concat(lower_bounds, axis=1).mean(axis=1)
+    )
+    ensemble_forecast['yhat_upper'] = (
+        pd.concat(upper_bounds, axis=1).mean(axis=1)
+    )
 
     ensemble_forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
         ensemble_forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
