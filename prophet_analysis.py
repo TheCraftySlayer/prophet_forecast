@@ -932,12 +932,20 @@ def train_prophet_model(
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
             prophet_df[regressor] = regressors_df[regressor].values
-        if regressor == 'post_policy':
-            model.add_regressor(regressor, mode='additive', prior_scale=10,
-                                standardize='auto')
-        else:
-            model.add_regressor(regressor, mode='additive', prior_scale=reg_prior_scale,
-                                standardize='auto')
+            if regressor == 'post_policy':
+                model.add_regressor(
+                    regressor,
+                    mode='additive',
+                    prior_scale=10,
+                    standardize='auto',
+                )
+            else:
+                model.add_regressor(
+                    regressor,
+                    mode='additive',
+                    prior_scale=reg_prior_scale,
+                    standardize='auto',
+                )
     
     # Fit the model
     logger.info("Fitting Prophet model")
