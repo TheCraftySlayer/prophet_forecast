@@ -7,12 +7,12 @@ model:
   seasonality_mode: additive
   seasonality_prior_scale: 0.01
   holidays_prior_scale: 5
-  changepoint_prior_scale: 0.05
+  changepoint_prior_scale: 0.2
   n_changepoints: 25
   changepoint_range: 0.9
   regressor_prior_scale: 0.05
   growth: logistic
-  mcmc_samples: 300
+  mcmc_samples: 0
   interval_width: 0.95
   weekly_seasonality: false
   yearly_seasonality: auto

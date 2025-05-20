@@ -38,9 +38,21 @@ from prophet_analysis import (
 from datetime import datetime
 import pandas as pd
 from holidays_calendar import get_holidays_dataframe
+import hashlib
+import json
+import subprocess
 import logging
 from sklearn.preprocessing import StandardScaler
 import pickle
+
+
+def _checksum(path: Path) -> str:
+    """Return SHA1 checksum for the given file."""
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def load_config(path: Path) -> dict:
@@ -122,7 +134,7 @@ def run_forecast(cfg: dict) -> None:
     summary.to_csv(out_dir / "summary.csv", index=False)
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
-    export_prophet_forecast(model, forecast, df, out_dir, scaler=scaler)
+    export_prophet_forecast(model, forecast, df, out_dir, scaler=None)
     export_baseline_forecast(df, out_dir)
 
     baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(df)
@@ -144,6 +156,19 @@ def run_forecast(cfg: dict) -> None:
     if cfg['model'].get('weekly_incremental') and model_to_json is not None:
         with open(base_out / 'latest_model.json', 'w') as f:
             f.write(model_to_json(model))
+
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
+    checksums = {
+        'calls': _checksum(call_path),
+        'visitors': _checksum(visit_path),
+        'queries': _checksum(chat_path),
+    }
+    log_path = Path('model_log.md')
+    with open(log_path, 'a') as log_f:
+        log_f.write(f"\n### Run {run_id}\n")
+        log_f.write(f"- commit: {commit}\n")
+        log_f.write(f"- checksums: {json.dumps(checksums)}\n")
+        log_f.write(f"- params: {json.dumps(model_params)}\n")
 
 
 def pipeline(config_path: Path) -> None:

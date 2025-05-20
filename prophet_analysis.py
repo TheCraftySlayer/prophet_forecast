@@ -614,6 +614,7 @@ def prepare_data(call_path,
     campaign_start = pd.Timestamp('2025-05-01')
     campaign_end = pd.Timestamp('2025-06-02')
     df['is_campaign'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
+    df['is_campaign'] = df['is_campaign'].shift(1).fillna(0).astype(int)
     df['campaign_May2025'] = df['is_campaign']
 
     df['holiday_flag'] = df['county_holiday_flag'].astype(int)
@@ -784,7 +785,10 @@ def prepare_prophet_data(df):
     
     Prophet requires columns ds (datestamp) and y (target variable)
     """
-    # Create Prophet DataFrame
+    # Ensure no missing target values
+    if df['call_count'].isna().any():
+        df = df.dropna(subset=['call_count'])
+
     prophet_df = df.reset_index().rename(columns={'index': 'ds', 'call_count': 'y'})
 
     return prophet_df
@@ -843,7 +847,7 @@ def train_prophet_model(
         **prophet_kwargs,
         'seasonality_mode': 'additive',
         'n_changepoints': 25,
-        'changepoint_prior_scale': 0.05,
+        'changepoint_prior_scale': 0.2,
         'changepoint_range': 0.9,
         'changepoints': [
             pd.Timestamp('2023-11-01'),
@@ -853,7 +857,7 @@ def train_prophet_model(
         'seasonality_prior_scale': 0.01,
         'holidays_prior_scale': 5,
         'holidays': holidays_df,
-        'mcmc_samples': 300,
+        'mcmc_samples': 0,
         'uncertainty_samples': 300,
         'growth': 'logistic',
         'interval_width': 0.95
@@ -910,7 +914,8 @@ def train_prophet_model(
         'county_holiday_flag',
         'holiday_flag',
         'closure_flag',
-        'is_weekend',
+        'call_lag1',
+        'call_lag7',
     ]
     
     for regressor in important_regressors:
@@ -946,6 +951,7 @@ def train_prophet_model(
     future_regs['post_policy'] = (future_regs.index >= pd.Timestamp('2025-05-01')).astype(int)
     future_regs['is_campaign'] = ((future_regs.index >= pd.Timestamp('2025-05-01')) &
                                    (future_regs.index <= pd.Timestamp('2025-06-02'))).astype(int)
+    future_regs['is_campaign'] = future_regs['is_campaign'].shift(1).fillna(0).astype(int)
     future_regs['campaign_May2025'] = future_regs['is_campaign']
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
@@ -1041,21 +1047,21 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     # Base model
     model1 = Prophet(
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05,
+        changepoint_prior_scale=0.2,
         **PROPHET_KWARGS,
     )
     
     # More flexible model
     model2 = Prophet(
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05,
+        changepoint_prior_scale=0.2,
         **PROPHET_KWARGS,
     )
     
     # More rigid model
     model3 = Prophet(
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05,
+        changepoint_prior_scale=0.2,
         **PROPHET_KWARGS,
     )
     
@@ -1074,7 +1080,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         'county_holiday_flag',
         'holiday_flag',
         'closure_flag',
-        'is_weekend',
+        'call_lag1',
+        'call_lag7',
     ]
     
     # Add regressors to each model and fit them
@@ -2206,8 +2213,8 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
     )
 
     interval_scale = 1.0
-    if coverage == coverage and coverage < 90:
-        interval_scale = 90.0 / coverage
+    if coverage == coverage and coverage < 95:
+        interval_scale = 95.0 / coverage
         center = df_cv['yhat']
         df_cv['yhat_lower'] = center - (center - df_cv['yhat_lower']) * interval_scale
         df_cv['yhat_upper'] = center + (df_cv['yhat_upper'] - center) * interval_scale
