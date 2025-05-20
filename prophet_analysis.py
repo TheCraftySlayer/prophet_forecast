@@ -1029,12 +1029,24 @@ def train_prophet_model(
             )
             future[col] = future[col].fillna(0)
 
-    train_cols = set(prophet_df.columns) - {'y', 'ds'}
-    future_cols = set(future.columns) - {'ds'}
+    train_cols = set(prophet_df.columns) - {"y", "ds"}
+    future_cols = set(future.columns) - {"ds"}
     if train_cols != future_cols:
-        raise ValueError(
-            f"Feature mismatch between training and future data: {train_cols ^ future_cols}"
+        diff = train_cols ^ future_cols
+        logger.warning(
+            "Feature mismatch between training and future data: %s", diff
         )
+        # Drop any extra columns and fill missing ones with 0 so prediction can continue
+        for col in future_cols - train_cols:
+            future.drop(columns=col, inplace=True)
+        for col in train_cols - future_cols:
+            future[col] = 0
+
+    # Fill any remaining NaN values in regressors to avoid errors during prediction
+    for col in future.columns:
+        if col != "ds" and future[col].isna().any():
+            logger.warning("Found %s NaN values in %s after alignment", future[col].isna().sum(), col)
+            future[col] = future[col].fillna(0)
     
     # Make forecast
     logger.info("Making forecast")
