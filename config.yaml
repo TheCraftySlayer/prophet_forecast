@@ -21,5 +21,5 @@ model:
   uncertainty_samples: 300
 cross_validation:
   initial: '365 days'
-  period: '14 days'
-  horizon: '14 days'
+  period: '7 days'
+  horizon: '30 days'
