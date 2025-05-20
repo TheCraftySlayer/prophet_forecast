@@ -562,6 +562,10 @@ def prepare_data(call_path,
         df["call_count"] = df["call_count"].interpolate()
     df["call_count"] = df["call_count"].astype(float)
 
+    # Interpolate and fill missing visit counts before creating rolling features
+    df["visit_count"] = df["visit_count"].interpolate()
+    df["visit_count"] = df["visit_count"].ffill().bfill().astype(float)
+
     # Recalculate weekday means after cleaning
     weekday_mask = df.index.dayofweek < 5
     weekday_means = (
