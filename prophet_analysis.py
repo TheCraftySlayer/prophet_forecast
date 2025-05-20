@@ -1030,9 +1030,11 @@ def train_prophet_model(
             future[col] = future[col].fillna(0)
 
     train_cols = set(prophet_df.columns) - {'y', 'ds'}
-    future_cols = set(future.columns)
+    future_cols = set(future.columns) - {'ds'}
     if train_cols != future_cols:
-        raise ValueError(f"Feature mismatch between training and future data: {train_cols ^ future_cols}")
+        raise ValueError(
+            f"Feature mismatch between training and future data: {train_cols ^ future_cols}"
+        )
     
     # Make forecast
     logger.info("Making forecast")
