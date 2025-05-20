@@ -33,6 +33,7 @@ from prophet_analysis import (
     export_prophet_forecast,
     export_baseline_forecast,
     PROPHET_KWARGS,
+    compute_naive_baseline,
 )
 from datetime import datetime
 import pandas as pd
@@ -115,6 +116,29 @@ def run_forecast(cfg: dict) -> None:
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
     export_prophet_forecast(model, forecast, df, out_dir)
     export_baseline_forecast(df, out_dir)
+
+    baseline_df, baseline_metrics = compute_naive_baseline(df)
+    mae_b = baseline_metrics.loc[baseline_metrics['metric']=='MAE','value'].iloc[0]
+    rmse_b = baseline_metrics.loc[baseline_metrics['metric']=='RMSE','value'].iloc[0]
+    mape_b = baseline_metrics.loc[baseline_metrics['metric']=='MAPE','value'].iloc[0]
+    metrics_baseline = pd.DataFrame([{
+        'model': 'baseline',
+        'horizon': 1,
+        'MAE': mae_b,
+        'RMSE': rmse_b,
+        'MAPE': mape_b,
+        'coverage': float('nan'),
+    }])
+
+    coverage = summary.loc[summary['metric']=='Coverage','value'].iloc[0]
+    prophet_metrics = horizon_table.rename(columns={'horizon_days':'horizon'}).copy()
+    prophet_metrics['model'] = 'prophet'
+    prophet_metrics['coverage'] = coverage
+    metrics = pd.concat([
+        metrics_baseline,
+        prophet_metrics[['model','horizon','MAE','RMSE','MAPE','coverage']]
+    ], ignore_index=True)
+    metrics.to_csv(out_dir / 'metrics.csv', index=False)
 
 
 def pipeline(config_path: Path) -> None:
