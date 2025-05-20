@@ -48,6 +48,7 @@ import matplotlib.pyplot as plt
 import logging
 import argparse
 from functools import lru_cache
+import sqlite3
 from pathlib import Path
 import tempfile
 import re
@@ -347,11 +348,34 @@ def setup_logging():
     return logger
 
 
+def load_time_series_sqlite(
+    db_path: Path, table: str, date_col: str = "date", value_col: str = "value"
+) -> pd.Series:
+    """Load a time series from a SQLite database table."""
+    conn = sqlite3.connect(db_path)
+    try:
+        query = f"SELECT {date_col}, {value_col} FROM {table}"
+        df = pd.read_sql_query(query, conn)
+    finally:
+        conn.close()
+
+    df["date_parsed"] = pd.to_datetime(df[date_col], errors="coerce")
+    df = df.dropna(subset=["date_parsed"])
+    series = df.set_index("date_parsed")[value_col].sort_index()
+    full_idx = pd.date_range(series.index.min(), series.index.max(), freq="D")
+    return series.reindex(full_idx).fillna(0)
+
+
 @lru_cache(maxsize=None)
 def load_time_series(path: Path, metric: str = "call") -> pd.Series:
-    """Load a time series from a CSV or Excel file with improved column detection"""
+    """Load a time series from a CSV, Excel or SQLite file."""
+    file_str = str(path)
+    if ".db:" in file_str:
+        db_file, table = file_str.split(":", 1)
+        return load_time_series_sqlite(Path(db_file), table)
+
     # Check file extension
-    file_ext = str(path).lower()
+    file_ext = file_str.lower()
 
     if file_ext.endswith('.csv'):
         # Load CSV file
