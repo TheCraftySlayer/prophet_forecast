@@ -971,6 +971,13 @@ def train_prophet_model(
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
 
+    # Ensure the logistic growth capacity column survives the merge
+    if "cap_x" in future.columns:
+        future["cap"] = future.pop("cap_x")
+    if "cap_y" in future.columns:
+        future["cap"] = future.get("cap", future["cap_y"]).fillna(future["cap_y"])
+        future.drop(columns=["cap_y"], inplace=True)
+
 
     # Basic sanity check for merged regressors
     for col in future_regs.columns:
