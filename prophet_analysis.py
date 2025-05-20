@@ -1905,7 +1905,7 @@ def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
     return excel_path
 
 
-def export_prophet_forecast(model, forecast, df, output_dir):
+def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
     """
     Export Prophet forecast to Excel.
 
@@ -1941,6 +1941,12 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     
     # Get predictions for the past 14 days
     recent_forecast = forecast[forecast['ds'].isin(recent_days)].copy()
+    if scaler is not None:
+        for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+            if col in recent_forecast.columns:
+                recent_forecast[col] = scaler.inverse_transform(
+                    recent_forecast[[col]]
+                )
     recent_forecast['actual'] = np.nan
     
     # Get actual values if available
@@ -1954,6 +1960,11 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     
     # Get next day forecast
     next_day_forecast = forecast[forecast['ds'] == next_day].copy()
+    if scaler is not None and not next_day_forecast.empty:
+        for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+            next_day_forecast[col] = scaler.inverse_transform(
+                next_day_forecast[[col]]
+            )
     
     if len(next_day_forecast) == 0:
         # If next day isn't in forecast, make a special prediction
@@ -1965,6 +1976,11 @@ def export_prophet_forecast(model, forecast, df, output_dir):
         next_day_forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
             next_day_forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
         )
+        if scaler is not None:
+            for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+                next_day_forecast[col] = scaler.inverse_transform(
+                    next_day_forecast[[col]]
+                )
     
     # Prepare next day info
     next_day_df = pd.DataFrame({
@@ -2068,6 +2084,12 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     else:
         # Minimal CSV fallback
         fallback_df = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        if scaler is not None:
+            for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+                if col in fallback_df.columns:
+                    fallback_df[col] = scaler.inverse_transform(
+                        fallback_df[[col]]
+                    )
         fallback_df.to_csv(output_file, index=False)
     
     logger.info(f"Forecast exported to {output_file}")
@@ -2075,7 +2097,7 @@ def export_prophet_forecast(model, forecast, df, output_dir):
     return output_file
 
 
-def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=False, forecast=None):
+def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=False, forecast=None, scaler=None):
     """Cross‑validate the Prophet model and report MAE and RMSE."""
 
     if cv_params is None:
@@ -2137,6 +2159,15 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
             if col in df_cv.columns:
                 df_cv[col] = np.expm1(df_cv[col])
+
+    if scaler is not None:
+        for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
+            if col in df_cv.columns:
+                df_cv[col] = scaler.inverse_transform(df_cv[[col]])
+        if forecast is not None:
+            for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+                if col in forecast.columns:
+                    forecast[col] = scaler.inverse_transform(forecast[[col]])
 
     # Propagate horizon column if not provided by cross_validation
     if 'horizon' not in df_cv.columns and {'ds', 'cutoff'} <= set(df_cv.columns):

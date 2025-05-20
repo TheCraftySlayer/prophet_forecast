@@ -39,6 +39,8 @@ from datetime import datetime
 import pandas as pd
 from holidays_calendar import get_holidays_dataframe
 import logging
+from sklearn.preprocessing import StandardScaler
+import pickle
 
 
 def load_config(path: Path) -> dict:
@@ -67,7 +69,12 @@ def run_forecast(cfg: dict) -> None:
     out_dir.mkdir(exist_ok=True)
 
     df, regressors = prepare_data(call_path, visit_path, chat_path, scale_features=True)
-    prophet_df = prepare_prophet_data(df)
+    scaler = StandardScaler()
+    df_scaled = df.copy()
+    df_scaled['call_count'] = scaler.fit_transform(df[['call_count']])
+    with open(out_dir / 'call_scaler.pkl', 'wb') as f:
+        pickle.dump(scaler, f)
+    prophet_df = prepare_prophet_data(df_scaled)
 
     best_params = tune_prophet_hyperparameters(prophet_df, prophet_kwargs=PROPHET_KWARGS)
     model_params = {
@@ -110,11 +117,12 @@ def run_forecast(cfg: dict) -> None:
         cv_params=cv_params,
         log_transform=True,
         forecast=forecast,
+        scaler=scaler,
     )
     summary.to_csv(out_dir / "summary.csv", index=False)
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
-    export_prophet_forecast(model, forecast, df, out_dir)
+    export_prophet_forecast(model, forecast, df, out_dir, scaler=scaler)
     export_baseline_forecast(df, out_dir)
 
     baseline_df, baseline_metrics = compute_naive_baseline(df)
