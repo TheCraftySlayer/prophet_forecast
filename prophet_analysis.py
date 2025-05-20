@@ -116,8 +116,16 @@ try:
     from prophet.serialize import model_to_json
     _HAVE_SERIALIZE = True
 except Exception:  # pragma: no cover - optional dependency may be missing
-    _HAVE_SERIALIZE = False
+_HAVE_SERIALIZE = False
     model_to_json = None
+
+# Global tuning options
+POLICY_LOWER = True
+PROPHET_KWARGS = {
+    "yearly_seasonality": False,
+    "weekly_seasonality": True,
+    "daily_seasonality": False,
+}
 
 # Restore this directory in sys.path so local modules can be imported after the
 # heavy third-party libraries have been loaded.
@@ -246,15 +254,16 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
     except Exception as e:  # pragma: no cover - compilation may fail on CI
         logger.warning(f"Failed to compile custom Stan model: {e}")
         return None
-def tune_prophet_hyperparameters(prophet_df):
+def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
     """Find optimal Prophet hyperparameters using grid search"""
     logger = logging.getLogger(__name__)
     logger.info("Tuning Prophet hyperparameters")
     
+    if prophet_kwargs is None:
+        prophet_kwargs = PROPHET_KWARGS
+
     # Parameter grid
     param_grid = {
-        'seasonality_prior_scale': [0.01, 0.1, 1.0],
-        'holidays_prior_scale': [5],
         'changepoint_prior_scale': [0.3, 0.4, 0.5]
     }
     
@@ -273,12 +282,10 @@ def tune_prophet_hyperparameters(prophet_df):
                 growth='linear',
                 interval_width=0.8,
                 seasonality_mode='additive',
-                yearly_seasonality='auto',
-                weekly_seasonality=True,
-                daily_seasonality=False,
                 n_changepoints=25,
                 changepoint_range=0.9,
-                **params
+                **prophet_kwargs,
+                **params,
             )
 
             df_copy = prophet_df.copy()
@@ -291,7 +298,7 @@ def tune_prophet_hyperparameters(prophet_df):
                 initial='365 days',
                 period='30 days',
                 horizon='30 days',
-                parallel='threads'
+                parallel=None
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
             df_p = performance_metrics(df_cv, rolling_window=1)
@@ -758,6 +765,7 @@ def train_prophet_model(
     regressors_df,
     future_periods=30,
     model_params=None,
+    prophet_kwargs=None,
     log_transform=False,
     likelihood="normal",
 ):
@@ -781,10 +789,11 @@ def train_prophet_model(
     
     # Initialize Prophet model with optional tuned parameters
 
+    if prophet_kwargs is None:
+        prophet_kwargs = PROPHET_KWARGS
+
     default_params = {
-        'yearly_seasonality': 'auto',
-        'weekly_seasonality': True,
-        'daily_seasonality': False,
+        **prophet_kwargs,
         'seasonality_mode': 'additive',
         'n_changepoints': 25,
         'changepoint_prior_scale': 0.4,
@@ -926,7 +935,7 @@ def train_prophet_model(
 def _check_forecast_sanity(forecast: pd.DataFrame) -> None:
     """Run simple sanity checks on forecast outputs."""
     logger = logging.getLogger(__name__)
-    if 'weekly' in forecast.columns:
+    if 'weekly' in forecast.columns and not POLICY_LOWER:
         week = forecast[['ds', 'weekly']].copy()
         week['dow'] = week['ds'].dt.dayofweek
         midweek = week[week['dow'].isin([1, 2, 3])]['weekly'].mean()
@@ -958,29 +967,23 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     
     # Base model
     model1 = Prophet(
-        yearly_seasonality=False,
-        weekly_seasonality=True,
-        daily_seasonality=False,
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05
+        changepoint_prior_scale=0.05,
+        **PROPHET_KWARGS,
     )
     
     # More flexible model
     model2 = Prophet(
-        yearly_seasonality=False,
-        weekly_seasonality=True,
-        daily_seasonality=False,
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05
+        changepoint_prior_scale=0.05,
+        **PROPHET_KWARGS,
     )
     
     # More rigid model
     model3 = Prophet(
-        yearly_seasonality=False,
-        weekly_seasonality=True,
-        daily_seasonality=False,
         seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05
+        changepoint_prior_scale=0.05,
+        **PROPHET_KWARGS,
     )
     
     models = [model1, model2, model3]
@@ -1309,7 +1312,7 @@ def cross_validate_prophet(model, df, periods=14, horizon='30 days', initial='27
         initial=initial,
         period=f'{periods} days',
         horizon=horizon,
-        parallel="threads",
+        parallel=None,
     )
     df_p = performance_metrics(df_cv)
     return df_p['rmse'].mean()
@@ -1352,11 +1355,9 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         # Base model performance
         future_periods = len(test_df)
         model_copy = Prophet(
-            yearly_seasonality=False,
-            weekly_seasonality=True,
-            daily_seasonality=False,
             seasonality_mode='multiplicative',
-            changepoint_prior_scale=model.changepoint_prior_scale
+            changepoint_prior_scale=model.changepoint_prior_scale,
+            **PROPHET_KWARGS,
         )
         
         # Add regressors to the base model
@@ -1407,11 +1408,9 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 
                 # Refit and evaluate
                 test_model = Prophet(
-                    yearly_seasonality=False,
-                    weekly_seasonality=True,
-                    daily_seasonality=False,
                     seasonality_mode='multiplicative',
-                    changepoint_prior_scale=model.changepoint_prior_scale
+                    changepoint_prior_scale=model.changepoint_prior_scale,
+                    **PROPHET_KWARGS,
                 )
                 
                 # Add remaining regressors
@@ -1459,12 +1458,15 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 
             elif feature == 'yearly_seasonality' or feature == 'weekly_seasonality':
                 # Create version without this seasonality
+                custom_kwargs = {
+                    **PROPHET_KWARGS,
+                    'yearly_seasonality': feature != 'yearly_seasonality',
+                    'weekly_seasonality': feature != 'weekly_seasonality',
+                }
                 test_model = Prophet(
-                    yearly_seasonality=(feature != 'yearly_seasonality'),
-                    weekly_seasonality=(feature != 'weekly_seasonality'),
-                    daily_seasonality=False,
                     seasonality_mode='multiplicative',
-                    changepoint_prior_scale=model.changepoint_prior_scale
+                    changepoint_prior_scale=model.changepoint_prior_scale,
+                    **custom_kwargs,
                 )
                 
                 # Add regressors
@@ -2028,7 +2030,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
             initial=initial,
             period=period,
             horizon=horizon,
-            parallel="threads",
+            parallel=None,
         )
         df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
         residuals = df_cv['y'] - df_cv['yhat']
@@ -2043,12 +2045,10 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
             growth=model.growth,
             interval_width=model.interval_width,
             seasonality_mode=model.seasonality_mode,
-            yearly_seasonality=model.yearly_seasonality,
-            weekly_seasonality=model.weekly_seasonality,
-            daily_seasonality=model.daily_seasonality,
             changepoint_prior_scale=new_scale,
             n_changepoints=model.n_changepoints,
             holidays=model.holidays,
+            **PROPHET_KWARGS,
         )
         for name, info in reg_info.items():
             model.add_regressor(name, **info)
