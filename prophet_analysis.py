@@ -1047,7 +1047,7 @@ def train_prophet_model(
     check_cols = [
         'post_policy', 'is_campaign', 'campaign_May2025', 'visit_ma3',
         'chatbot_count', 'notice_flag', 'deadline_flag', 'county_holiday_flag',
-        'holiday_flag', 'closure_flag'
+        'holiday_flag', 'closure_flag', 'call_lag1', 'call_lag7'
     ]
     for col in check_cols:
         if col in future.columns and future[col].isna().any():
