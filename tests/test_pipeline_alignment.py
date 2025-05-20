@@ -54,7 +54,8 @@ def test_pipeline_alignment():
     holidays = create_prophet_holidays(
         holiday_df.loc[mask, "date"],
         pd.date_range(df.index.min(), df.index.max(), freq="MS"),
-        [],
+        closure_dates=[],
+        press_release_dates=[],
     )
     with patch("prophet_analysis.Prophet", DummyProphet):
         model, forecast, future = train_prophet_model(
