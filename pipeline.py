@@ -32,9 +32,14 @@ from data_preparation import (create_prophet_holidays, prepare_data,
 from holidays_calendar import get_holidays_dataframe
 from modeling import (evaluate_prophet_model, train_prophet_model,
                       tune_prophet_hyperparameters)
-from prophet_analysis import (PROPHET_KWARGS, compute_naive_baseline,
-                              export_baseline_forecast,
-                              export_prophet_forecast, model_to_json)
+from prophet_analysis import (
+    PROPHET_KWARGS,
+    compute_naive_baseline,
+    export_baseline_forecast,
+    export_prophet_forecast,
+    model_to_json,
+    write_summary,
+)
 
 
 def _checksum(path: Path) -> str:
@@ -140,8 +145,8 @@ def run_forecast(cfg: dict) -> None:
         scaler=None,
         transform=cfg["model"].get("transform", "log"),
     )
-    summary.to_csv(out_dir / "summary.csv", index=False)
-    horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)
+    write_summary(summary, out_dir / "summary.csv")
+    write_summary(horizon_table, out_dir / "horizon_metrics.csv")
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
     export_prophet_forecast(model, forecast, df, out_dir, scaler=None)
     export_baseline_forecast(df, out_dir)
@@ -167,7 +172,7 @@ def run_forecast(cfg: dict) -> None:
         ],
         ignore_index=True,
     )
-    metrics.to_csv(out_dir / "metrics.csv", index=False)
+    write_summary(metrics, out_dir / "metrics.csv")
 
     if cfg["model"].get("weekly_incremental") and model_to_json is not None:
         with open(base_out / "latest_model.json", "w") as f:
