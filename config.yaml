@@ -22,6 +22,6 @@ model:
   weekly_incremental: true
   uncertainty_samples: 300
 cross_validation:
-  initial: '365 days'
-  period: '7 days'
+  initial: '180 days'
+  period: '30 days'
   horizon: '14 days'

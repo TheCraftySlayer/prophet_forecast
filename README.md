@@ -154,7 +154,7 @@ You can modify these settings in `config.yaml` if desired.
 ## Cross-validation discipline
 
 The model is evaluated using a rolling origin cross‑validation scheme.
-The default initial window spans 365 days with a 30-day horizon and updates every 7 days. A model is accepted only if the mean absolute
+The default initial window spans 180 days with a 14-day horizon and updates every 30 days. A model is accepted only if the mean absolute
 error stays below 15% of the average call volume.
 
 ### Scaling details
