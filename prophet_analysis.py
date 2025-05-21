@@ -276,6 +276,11 @@ def compute_regressor_significance(
     significant: list[str] = []
     pvals: dict[str, float] = {}
 
+    # Ensure alignment between target and regressors after any merges
+    regressors = regressors.sort_index().reset_index(drop=True)
+    target = target.sort_index().reset_index(drop=True)
+    assert target.index.equals(regressors.index), "Regressor index misalignment"
+
     try:
         import statsmodels.api as sm  # type: ignore
 
@@ -1200,6 +1205,7 @@ def train_prophet_model(
 
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
+    future = future.sort_values("ds").reset_index(drop=True)
 
     if dropped_cols:
         future.drop(columns=[c for c in dropped_cols if c in future.columns], inplace=True)
@@ -1451,6 +1457,7 @@ def detect_outliers_prophet(df, forecast):
         on='ds',
         how='left'
     )
+    prophet_df = prophet_df.sort_values('ds').reset_index(drop=True)
     
     # Calculate residuals
     prophet_df['residual'] = prophet_df['call_count'] - prophet_df['yhat']
