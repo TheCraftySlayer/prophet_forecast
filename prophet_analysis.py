@@ -713,6 +713,7 @@ def prepare_data(
     )
 
     df["is_weekend"] = (df.index.dayofweek >= 5).astype(int)
+    df["is_monday"] = (df.index.dayofweek == 0).astype(int)
 
     # Flag zero-call weekdays and treat them as missing
     df['zero_call_flag'] = (
@@ -735,6 +736,9 @@ def prepare_data(
     if not weekday_means.empty:
         monday_spike = weekday_means.get(0, 0) - weekday_means.drop(0).mean()
         logger.info(f"Monday spike magnitude: {monday_spike:.1f}")
+        df["monday_effect"] = df["is_monday"] * monday_spike
+    else:
+        df["monday_effect"] = 0.0
 
     # Flag events before outlier handling
     if events is None:
@@ -847,6 +851,7 @@ def prepare_data(
         "chatbot_count",
         "call_lag1",
         "call_lag7",
+        "monday_effect",
         "deadline_flag",
         "notice_flag",
         "is_campaign",
@@ -1109,6 +1114,7 @@ def train_prophet_model(
         'chatbot_count',
         'call_lag1',
         'call_lag7',
+        'monday_effect',
         'notice_flag',
         'deadline_flag',
         'is_campaign',
@@ -1176,6 +1182,7 @@ def train_prophet_model(
     future_regs['chatbot_count'] = 0
     future_regs['call_lag1'] = 0
     future_regs['call_lag7'] = 0
+    future_regs['monday_effect'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
     future_regs['is_campaign'] = 0
@@ -1218,6 +1225,7 @@ def train_prophet_model(
         'chatbot_count',
         'call_lag1',
         'call_lag7',
+        'monday_effect',
         'notice_flag',
         'deadline_flag',
         'is_campaign',
@@ -1349,6 +1357,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         'chatbot_count',
         'call_lag1',
         'call_lag7',
+        'monday_effect',
         'notice_flag',
         'deadline_flag',
     ]
