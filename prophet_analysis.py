@@ -481,9 +481,7 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
         raise ValueError(f"Unsupported file format: {path}")
 
     # Convert date column to datetime
-    df["date_parsed"] = pd.to_datetime(
-        df[date_col], format="%m/%d/%y", errors="coerce"
-    )
+    df["date_parsed"] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=["date_parsed"])
 
     # Return the time series with all days, filling missing weekends with 0
@@ -520,11 +518,11 @@ def verify_date_formats(call_path, visit_path, chat_path):
         else:
             logger.info(f"{name}: {df['date'].iloc[0]}")
 
-    # Parse dates using the known format
+    # Parse dates flexibly, accepting two- or four-digit years
     for name, df in [("Calls", call_df), ("Visits", visit_df), ("Queries", chat_df)]:
         if df.empty:
             continue
-        dates = pd.to_datetime(df['date'], format="%m/%d/%y", errors="coerce")
+        dates = pd.to_datetime(df['date'], errors="coerce")
         logger.info(f"{name}: Successfully parsed {len(dates.dropna())} dates")
 
 
@@ -561,7 +559,7 @@ def prepare_data(call_path,
     calls_dates = load_time_series(call_path, metric="call").index
     visits_dates = load_time_series(visit_path, metric="visit").index
     chat_dates = pd.to_datetime(
-        pd.read_csv(chat_path)['date'], format="%m/%d/%y"
+        pd.read_csv(chat_path)['date'], errors="coerce"
     ).dropna()
 
     # Log date ranges
@@ -598,7 +596,6 @@ def prepare_data(call_path,
     chat = (
         pd.to_datetime(
             chat_df[dt_col],
-            format="%m/%d/%y",
             errors="coerce",
         )
         .dropna()
