@@ -1075,11 +1075,17 @@ def train_prophet_model(
 
     important_regressors = [r for r in important_regressors if r not in dropped_cols]
 
-    if important_regressors:
+    existing_regs = [r for r in important_regressors if r in regressors_df.columns]
+
+    if existing_regs:
         significant_regs, _ = compute_regressor_significance(
-            regressors_df[important_regressors], prophet_df['y']
+            regressors_df[existing_regs], prophet_df['y']
         )
-        important_regressors = [r for r in significant_regs if r in regressors_df.columns]
+        important_regressors = [
+            r for r in significant_regs if r in regressors_df.columns
+        ]
+    else:
+        important_regressors = []
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
