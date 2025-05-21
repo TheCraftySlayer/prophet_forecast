@@ -2495,19 +2495,34 @@ def evaluate_prophet_model(
     autocorr_flag = bool(ac_flag.any())
     if lb['lb_pvalue'].min() < 0.05:
         try:
-            ar_model = ARIMA(residuals, order=(3, 0, 0)).fit()
-            adj = ar_model.predict(start=0, end=len(residuals) - 1)
+            # Fit a simple autoregressive model using lag-1 and lag-7 terms
+            r = residuals.fillna(0.0)
+            X = np.column_stack([
+                r.shift(1).fillna(0.0).to_numpy(),
+                r.shift(7).fillna(0.0).to_numpy(),
+            ])
+            beta, _, _, _ = np.linalg.lstsq(X, r.to_numpy(), rcond=None)
+            adj = X @ beta
             df_cv['yhat'] += adj
             if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns):
                 df_cv['yhat_lower'] += adj
                 df_cv['yhat_upper'] += adj
             if forecast is not None:
-                fut_adj = ar_model.predict(start=len(residuals), end=len(residuals) + len(forecast) - 1)
+                hist = list(r.iloc[-7:].to_numpy())
+                fut_adj = []
+                for _ in range(len(forecast)):
+                    x1 = hist[-1]
+                    x7 = hist[0]
+                    pred = beta[0] * x1 + beta[1] * x7
+                    fut_adj.append(pred)
+                    hist.append(pred)
+                    hist.pop(0)
+                fut_adj = np.array(fut_adj)
                 forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
-                    forecast[['yhat', 'yhat_lower', 'yhat_upper']].add(np.array(fut_adj)[:, None])
+                    forecast[['yhat', 'yhat_lower', 'yhat_upper']].add(fut_adj[:, None])
                 )
         except Exception as exc:
-            logger.warning("AR(1) correction failed: %s", exc)
+            logger.warning("AR hybrid correction failed: %s", exc)
 
     summary = pd.DataFrame({
         "metric": ["MAE", "RMSE", "MAPE", "Coverage"],

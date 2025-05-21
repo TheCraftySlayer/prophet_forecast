@@ -119,6 +119,7 @@ reduce the impact of extreme spikes. Dummy variables mark periods for notice
 mail-outs, assessment deadlines, a May 2025 campaign and nearby county
 holidays. Only a 3‑day moving average of visitor counts and raw chatbot
 queries are retained as regressors. Lagged call counts at 1- and 7-day intervals are also used as regressors to mitigate autocorrelation.
+When residual autocorrelation persists, an autoregressive adjustment using lags 1 and 7 is applied to the predictions.
 
 The modeling pipeline applies either a logarithmic or Box‑Cox transform to the
 target series (controlled by `model.transform` in `config.yaml`). By default a
