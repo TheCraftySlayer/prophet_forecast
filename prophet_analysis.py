@@ -1067,6 +1067,9 @@ def train_prophet_model(
     """
     logger = logging.getLogger(__name__)
     logger.info("Training Prophet model")
+
+    if Prophet is None:
+        raise ImportError("prophet package is required for forecasting features")
     
     # Initialize Prophet model with optional tuned parameters
 
