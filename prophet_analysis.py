@@ -406,9 +406,9 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
     if prophet_kwargs is None:
         prophet_kwargs = PROPHET_KWARGS
 
-    # Parameter grid
+    # Parameter grid expanded on a log scale
     param_grid = {
-        'changepoint_prior_scale': [0.3, 0.4, 0.5]
+        'changepoint_prior_scale': list(np.logspace(-2, 0, 10))
     }
     
     # Generate all combinations
@@ -442,7 +442,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
                 initial='180 days',
                 period='30 days',
                 horizon='14 days',
-                parallel=None
+                parallel="processes"
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
             df_p = performance_metrics(df_cv, rolling_window=1)
@@ -1760,7 +1760,7 @@ def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='18
         initial=initial,
         period=f'{periods} days',
         horizon=horizon,
-        parallel=None,
+        parallel="processes",
     )
     df_p = performance_metrics(df_cv)
     return df_p['rmse'].mean()
@@ -2572,7 +2572,7 @@ def evaluate_prophet_model(
             initial=initial,
             period=period,
             horizon=horizon,
-            parallel=None,
+            parallel="processes",
         )
         df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
         residuals = df_cv['y'] - df_cv['yhat']

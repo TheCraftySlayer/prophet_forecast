@@ -147,6 +147,10 @@ hyperparameters are now tuned for a more flexible trend:
 - `weekly_seasonality=false` and a custom weekly component with `fourier_order=5`
 - `capacity` sets the logistic growth cap (defaults to 110% of training max)
 
+Hyperparameter tuning searches across `changepoint_prior_scale` values from
+`0.01` to `1.0` on a log scale and runs Prophet's cross validation in parallel
+to reduce wall time.
+
 You can modify these settings in `config.yaml` if desired. Event windows such as
 campaign dates, policy start and any explicit changepoints also live in the
 configuration file. Set `enable_mcmc: true` only when you purposely want
