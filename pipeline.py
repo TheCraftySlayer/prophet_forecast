@@ -14,10 +14,14 @@ if not _USE_STUB_LIBS:
     sys.path = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _THIS_DIR]
     sys.path.append(_THIS_DIR)
 try:
-    from ruamel.yaml import YAML
-except Exception:  # pragma: no cover - optional dependency may be missing
-    import yaml
-
+    from ruamel.yaml import YAML  # type: ignore
+except ModuleNotFoundError:
+    try:
+        import yaml  # type: ignore
+    except ModuleNotFoundError as e:  # pragma: no cover - environment missing YAML libs
+        raise ModuleNotFoundError(
+            "Missing YAML parser. Install ruamel.yaml or PyYAML to run this script."
+        ) from e
     YAML = None
 import hashlib
 import json
