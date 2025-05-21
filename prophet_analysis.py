@@ -250,15 +250,45 @@ def inv_box_cox_transform(series: pd.Series, lmbda: float, shift: float = 0.0) -
 def drop_collinear_features(
     df: pd.DataFrame, threshold: float = 0.9, return_dropped: bool = False
 ) -> pd.DataFrame | tuple[pd.DataFrame, list[str]]:
-    """Drop highly collinear numeric features from the DataFrame."""
+    """Drop highly collinear numeric features from the DataFrame.
+
+    ``threshold`` < 1 applies a pairwise correlation filter; values >= 1 use
+    Variance Inflation Factor (VIF) with the given threshold.
+    """
     logger = logging.getLogger(__name__)
-    numeric_df = df.select_dtypes(include=np.number).drop(columns=['call_count'], errors='ignore')
-    corr = numeric_df.corr().abs()
-    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-    to_drop = [col for col in upper.columns if any(upper[col] > threshold)]
+
+    numeric_df = df.select_dtypes(include=np.number).drop(
+        columns=["call_count"], errors="ignore"
+    )
+
+    to_drop: list[str] = []
+
+    if threshold >= 1:
+        arr = numeric_df.fillna(0).to_numpy(dtype="float64")
+        cols = list(numeric_df.columns)
+        if arr.size > 1:
+            for i, col in enumerate(cols):
+                y = arr[:, i]
+                X = np.delete(arr, i, axis=1)
+                X = np.column_stack([np.ones(len(X)), X])
+                beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+                y_pred = X @ beta
+                resid = y - y_pred
+                ss_res = float(resid.T @ resid)
+                ss_tot = float(((y - y.mean()) ** 2).sum())
+                r2 = 0.0 if ss_tot == 0 else 1 - ss_res / ss_tot
+                vif = float("inf") if 1 - r2 == 0 else 1 / (1 - r2)
+                if vif >= threshold:
+                    to_drop.append(col)
+    else:
+        corr = numeric_df.corr().abs()
+        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+        to_drop = [col for col in upper.columns if any(upper[col] > threshold)]
+
     if to_drop:
         logger.info("Dropping collinear features: %s", to_drop)
         df = df.drop(columns=to_drop)
+
     if return_dropped:
         return df, to_drop
     return df
@@ -777,6 +807,9 @@ def prepare_data(
         (df.index.dayofweek < 5) & ~df.index.isin(holiday_dates)
     ).astype(int)
 
+    # Filter collinear base features before expanding lags
+    df = drop_collinear_features(df, threshold=10)
+
     def hampel(series, window=7, n_sigmas=3):
         median = series.rolling(window, center=True).median()
         diff = np.abs(series - median)
@@ -864,7 +897,7 @@ def prepare_data(
                     regressors[col] = (regressors[col] - mean) / std
 
     # Drop highly collinear regressors to avoid instability
-    regressors = drop_collinear_features(regressors)
+    regressors = drop_collinear_features(regressors, threshold=10)
 
     return df, regressors
 
@@ -1100,7 +1133,9 @@ def train_prophet_model(
     
 
     # Drop collinear regressors first and capture removed columns
-    regressors_df, dropped_cols = drop_collinear_features(regressors_df, return_dropped=True)
+    regressors_df, dropped_cols = drop_collinear_features(
+        regressors_df, threshold=10, return_dropped=True
+    )
 
     # Restrict regressors to mitigate collinearity
     # Use standardized raw visitor and chatbot counts
@@ -1314,7 +1349,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     logger.info("Creating ensemble of Prophet models")
 
     # Remove collinear regressors to keep models stable
-    regressors_df = drop_collinear_features(regressors_df)
+    regressors_df = drop_collinear_features(regressors_df, threshold=10)
     
     # Create multiple Prophet models with different hyperparameters
     models = []
