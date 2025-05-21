@@ -97,7 +97,7 @@ def run_forecast(cfg: dict) -> None:
         "n_changepoints": cfg["model"].get("n_changepoints", 8),
         "changepoint_range": cfg["model"].get("changepoint_range", 0.8),
         "mcmc_samples": cfg["model"]["mcmc_samples"],
-        "interval_width": cfg["model"].get("interval_width", 0.8),
+        "interval_width": cfg["model"].get("interval_width", 0.9),
         "growth": cfg["model"].get("growth", "linear"),
         "regressor_prior_scale": cfg["model"].get("regressor_prior_scale", 0.05),
     }

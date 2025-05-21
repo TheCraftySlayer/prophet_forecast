@@ -388,7 +388,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
         try:
             m = Prophet(
                 growth='linear',
-                interval_width=0.8,
+                interval_width=0.9,
                 seasonality_mode='additive',
                 n_changepoints=25,
                 changepoint_range=0.9,
@@ -1013,7 +1013,7 @@ def train_prophet_model(
         'mcmc_samples': 0,
         'uncertainty_samples': 300,
         'growth': 'logistic',
-        'interval_width': 0.8
+        'interval_width': 0.9
     }
 
     reg_prior_scale = 0.05

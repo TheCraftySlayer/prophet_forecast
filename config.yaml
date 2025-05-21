@@ -14,7 +14,7 @@ model:
   growth: logistic
   transform: log
   mcmc_samples: 0
-  interval_width: 0.8
+  interval_width: 0.9
   weekly_seasonality: true
   yearly_seasonality: auto
   daily_seasonality: false
