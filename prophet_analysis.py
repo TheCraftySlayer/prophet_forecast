@@ -611,9 +611,19 @@ def prepare_data(call_path,
     idx = pd.date_range(start=start, end=end, freq="D")
 
     holiday_df = get_holidays_dataframe()
-    mask = (holiday_df['event'] == 'county_holiday') & \
-           (holiday_df['date'] >= idx.min()) & (holiday_df['date'] <= idx.max())
+    mask = (
+        (holiday_df['event'] == 'county_holiday')
+        & (holiday_df['date'] >= idx.min())
+        & (holiday_df['date'] <= idx.max())
+    )
     holiday_dates = holiday_df.loc[mask, 'date']
+
+    press_release_dates = holiday_df.loc[
+        (holiday_df['event'] == 'press_release')
+        & (holiday_df['date'] >= idx.min())
+        & (holiday_df['date'] <= idx.max()),
+        'date',
+    ]
 
     # Build main dataframe
     df = pd.DataFrame({
@@ -683,6 +693,8 @@ def prepare_data(call_path,
     df['is_campaign'] = df['is_campaign'].shift(1).fillna(0).astype(int)
     df['campaign_May2025'] = df['is_campaign']
 
+    df['press_release_flag'] = df.index.isin(press_release_dates).astype(int)
+
     df['holiday_flag'] = df['county_holiday_flag'].astype(int)
     df['closure_flag'] = ((df['is_weekend'] == 1) | (df['holiday_flag'] == 1)).astype(int)
 
@@ -746,6 +758,9 @@ def prepare_data(call_path,
         "chatbot_count",
         "deadline_flag",
         "notice_flag",
+        "is_campaign",
+        "post_policy",
+        "press_release_flag",
     ]
     regressors = regressors[important_regs]
 
@@ -982,6 +997,9 @@ def train_prophet_model(
         'chatbot_count',
         'notice_flag',
         'deadline_flag',
+        'is_campaign',
+        'post_policy',
+        'press_release_flag',
     ]
 
     important_regressors = [r for r in important_regressors if r not in dropped_cols]
@@ -1026,6 +1044,9 @@ def train_prophet_model(
     future_regs['chatbot_count'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
+    future_regs['is_campaign'] = 0
+    future_regs['post_policy'] = 0
+    future_regs['press_release_flag'] = 0
     future_regs['cap'] = 1000
 
     # Ensure float dtypes before merging to avoid warnings
@@ -1058,7 +1079,13 @@ def train_prophet_model(
 
     # Basic sanity check for merged regressors
     check_cols = [
-        'visit_ma3', 'chatbot_count', 'notice_flag', 'deadline_flag'
+        'visit_ma3',
+        'chatbot_count',
+        'notice_flag',
+        'deadline_flag',
+        'is_campaign',
+        'post_policy',
+        'press_release_flag',
     ]
     for col in check_cols:
         if col in future.columns and future[col].isna().any():
@@ -1508,6 +1535,8 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         'visit_ma3',
         'chatbot_count',
         'is_campaign',
+        'post_policy',
+        'press_release_flag',
         'yearly_seasonality',
         'weekly_seasonality'
     ]
