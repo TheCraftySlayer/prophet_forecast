@@ -2575,8 +2575,11 @@ def evaluate_prophet_model(
     history = model.history.copy()
     reg_info = model.extra_regressors.copy()
     df_cv = None
+    lb_first = None
     lb_p = 0.0
     attempts = 0
+    current_scale = model.changepoint_prior_scale
+    orig_model = model
     while True:
         df_cv = cross_validation(
             model,
@@ -2588,26 +2591,38 @@ def evaluate_prophet_model(
         df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
         residuals = df_cv['y'] - df_cv['yhat']
         lb = acorr_ljungbox(residuals, lags=14, return_df=True)
-        lb_p = lb['lb_pvalue'].min()
-        if lb_p > 0.05 or attempts >= 2:
+        if lb_first is None:
+            lb_first = lb.copy()
+            lb_p = lb['lb_pvalue'].min()
+            if 0.2 <= lb_p <= 0.8:
+                break
+        else:
+            lb_p = lb['lb_pvalue'].min()
+        if lb_p > 0.05 or attempts >= 1:
             break
         attempts += 1
-        new_scale = model.changepoint_prior_scale * 0.5
-        logger.info("Autocorrelation detected, refitting with changepoint_prior_scale=%s", new_scale)
+        current_scale *= 0.5
+        logger.info(
+            "Autocorrelation detected, refitting with changepoint_prior_scale=%s",
+            current_scale,
+        )
         model = Prophet(
             growth=model.growth,
             interval_width=model.interval_width,
             seasonality_mode=model.seasonality_mode,
-            changepoint_prior_scale=new_scale,
+            changepoint_prior_scale=current_scale,
             n_changepoints=model.n_changepoints,
             holidays=model.holidays,
             **PROPHET_KWARGS,
         )
         for name, info in reg_info.items():
-            allowed = {k: v for k, v in info.items() if k in {'prior_scale', 'mode', 'standardize'}}
+            allowed = {
+                k: v for k, v in info.items() if k in {"prior_scale", "mode", "standardize"}
+            }
             model.add_regressor(name, **allowed)
         _ensure_tbb_on_path()
         _fit_prophet_with_fallback(model, history)
+    orig_model.changepoint_prior_scale = current_scale
 
     if transform is None and log_transform:
         transform = "log"
@@ -2751,10 +2766,11 @@ def evaluate_prophet_model(
 
     _check_horizon_escalation(horizon_table)
 
+    lb_diag = lb_first if lb_first is not None else lb
     diag = pd.DataFrame({
-        'lag': lb.index,
-        'lb_stat': lb['lb_stat'],
-        'lb_pvalue': lb['lb_pvalue']
+        'lag': lb_diag.index,
+        'lb_stat': lb_diag['lb_stat'],
+        'lb_pvalue': lb_diag['lb_pvalue']
     })
 
     mean_calls = df_cv['y'].mean()
