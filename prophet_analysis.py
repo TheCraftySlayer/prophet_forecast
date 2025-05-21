@@ -21,12 +21,12 @@ from __future__ import annotations
 import os
 import sys
 
-# If the USE_REAL_LIBS environment variable is set, temporarily remove this
-# directory from ``sys.path`` so the real third-party packages are imported
-# instead of the lightweight stub modules bundled with the repository.
-_USE_REAL_LIBS = os.getenv("USE_REAL_LIBS") == "1"
+# By default the real third-party packages are imported. Set ``USE_STUB_LIBS=1``
+# to temporarily favour the lightweight stub modules bundled with the
+# repository when running tests.
+_USE_STUB_LIBS = os.getenv("USE_STUB_LIBS") == "1"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-if _USE_REAL_LIBS:
+if not _USE_STUB_LIBS:
     sys.path = [
         p
         for p in sys.path
@@ -37,7 +37,7 @@ import matplotlib
 if not hasattr(matplotlib, "use"):
     raise ImportError(
         "The bundled matplotlib stub was imported. "
-        "Install the real matplotlib package and set USE_REAL_LIBS=1 to use it."
+        "Install the real matplotlib package or set USE_STUB_LIBS=1 to use the stubs."
     )
 matplotlib.use("Agg")  # ensure headless backend for multiprocessing safety
 import argparse
@@ -135,7 +135,7 @@ PROPHET_KWARGS = {
 
 # Restore this directory in sys.path so local modules can be imported after the
 # heavy third-party libraries have been loaded.
-if _USE_REAL_LIBS and _THIS_DIR not in sys.path:
+if not _USE_STUB_LIBS and _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
 from holidays_calendar import get_holidays_dataframe

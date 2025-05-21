@@ -12,7 +12,7 @@ import argparse
 from pathlib import Path
 
 import pipeline
-from data_preparation import prepare_data
+from prophet_analysis import prepare_data
 
 
 def main(calls: Path, visitors: Path, queries: Path, out_path: Path) -> None:

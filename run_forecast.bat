@@ -7,7 +7,6 @@ REM argument or default to "config.yaml".
 set "CONFIG=%1"
 if "%CONFIG%"=="" set "CONFIG=config.yaml"
 if "%PYTHON%"=="" set "PYTHON=python"
-set USE_REAL_LIBS=1
 
 %PYTHON% pipeline.py "%CONFIG%"
 

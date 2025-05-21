@@ -2,16 +2,15 @@ import os
 import sys
 from pathlib import Path
 
-# If the USE_REAL_LIBS environment variable is set, temporarily remove this
-# directory from ``sys.path`` so the real third-party packages are imported
-# instead of the lightweight stub modules bundled with the repository.
-_USE_REAL_LIBS = os.getenv("USE_REAL_LIBS") == "1"
+# By default the real third-party packages are used. Set ``USE_STUB_LIBS=1``
+# to temporarily prioritise the lightweight stubs bundled with the repository
+# for faster testing.
+_USE_STUB_LIBS = os.getenv("USE_STUB_LIBS") == "1"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-if _USE_REAL_LIBS:
-    # When using the real third-party libraries, ensure this repository's
-    # directory is searched **after** the standard site-packages so our stub
-    # modules do not shadow the installed packages.  Remove the path first and
-    # append it to the end of ``sys.path``.
+if not _USE_STUB_LIBS:
+    # When using the real libraries ensure this repository's directory is
+    # searched *after* site-packages so our stub modules do not shadow the
+    # installed packages.
     sys.path = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _THIS_DIR]
     sys.path.append(_THIS_DIR)
 try:
@@ -27,12 +26,14 @@ import subprocess
 from datetime import datetime
 
 import pandas as pd
-from data_preparation import (create_prophet_holidays, prepare_data,
-                              prepare_prophet_data)
 from holidays_calendar import get_holidays_dataframe
-from modeling import (evaluate_prophet_model, train_prophet_model,
-                      tune_prophet_hyperparameters)
 from prophet_analysis import (
+    create_prophet_holidays,
+    prepare_data,
+    prepare_prophet_data,
+    evaluate_prophet_model,
+    train_prophet_model,
+    tune_prophet_hyperparameters,
     PROPHET_KWARGS,
     compute_naive_baseline,
     export_baseline_forecast,
