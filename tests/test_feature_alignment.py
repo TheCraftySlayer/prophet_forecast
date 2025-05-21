@@ -9,9 +9,18 @@ from tests.test_pipeline_alignment import DummyProphet
 
 
 def dropping_cols(df, threshold=0.9, return_dropped=False):
-    dropped = [c for c in [
-        'holiday_flag', 'is_campaign', 'campaign_May2025', 'is_weekend'
-    ] if c in df.columns]
+    dropped = [
+        c
+        for c in [
+            'holiday_flag',
+            'is_campaign',
+            'campaign_May2025',
+            'is_weekend',
+            'press_release_flag',
+            'post_policy',
+        ]
+        if c in df.columns
+    ]
     df = df.drop(columns=dropped)
     if return_dropped:
         return df, dropped
