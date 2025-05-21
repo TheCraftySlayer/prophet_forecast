@@ -2104,7 +2104,20 @@ def write_summary(df: pd.DataFrame, path: Path) -> Path:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False, na_rep="NaN")
+    try:
+        df.to_csv(path, index=False, na_rep="NaN")
+    except TypeError:
+        # Fallback for minimal DataFrame implementation without ``na_rep``
+        import csv
+        import math
+
+        with open(path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(df.columns)
+            for row in df.itertuples(index=False, name=None):
+                writer.writerow(
+                    ["NaN" if isinstance(x, float) and math.isnan(x) else x for x in row]
+                )
     return path
 
 
