@@ -50,6 +50,7 @@ import math
 import re
 import sqlite3
 import tempfile
+import shutil
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -79,6 +80,7 @@ try:
     from prophet import Prophet
     from prophet.diagnostics import cross_validation, performance_metrics
     from prophet.plot import plot_cross_validation_metric
+    from prophet.models import StanBackendCmdStan
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
@@ -94,6 +96,12 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 
     def plot_cross_validation_metric(*args, **kwargs):
         return _missing_prophet()
+
+    class _DummyBackend:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("prophet package is required for forecasting features")
+
+    StanBackendCmdStan = _DummyBackend  # type: ignore
 
     _HAVE_PROPHET = False
 
@@ -161,6 +169,9 @@ except Exception:  # pragma: no cover - cmdstanpy may be missing
     cmdstan_path = None
 
 _TBB_DLL_DIR_CACHE: str | None = None
+
+# Path where a compiled custom Prophet Stan model will be stored
+_COMPILED_STAN_MODEL = Path(__file__).with_name("prophet_model.pkl")
 
 
 def _get_tbb_dll_dir() -> str | None:
@@ -355,6 +366,10 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
         logger.warning("Unsupported likelihood: %s", likelihood)
         return None
 
+    if _COMPILED_STAN_MODEL.exists():
+        logger.info("Using cached custom Stan model at %s", _COMPILED_STAN_MODEL)
+        return _COMPILED_STAN_MODEL
+
     tmp_dir = Path(tempfile.mkdtemp())
     stan_path = tmp_dir / 'model.stan'
     compiled_path = tmp_dir / 'model.pkl'
@@ -372,7 +387,9 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
             str(stan_path),
             str(compiled_path),
         ])
-        return compiled_path
+        shutil.copy2(compiled_path, _COMPILED_STAN_MODEL)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return _COMPILED_STAN_MODEL
     except Exception as e:  # pragma: no cover - compilation may fail on CI
         logger.warning(f"Failed to compile custom Stan model: {e}")
         return None
@@ -1085,11 +1102,20 @@ def train_prophet_model(
         else:
             logger.warning("Falling back to normal likelihood")
 
-    model = Prophet(**default_params)
+    backend = None
+    if custom_model_path and _HAVE_PROPHET:
+        try:
+            with open(custom_model_path, "rb") as f:
+                compiled_model = pickle.load(f)
+            backend = StanBackendCmdStan(model=compiled_model)
+        except Exception as e:  # pragma: no cover - prophet may be missing
+            logger.warning(f"Could not create custom Stan backend: {e}")
+
+    model = Prophet(stan_backend=backend, **default_params) if backend else Prophet(**default_params)
     if not default_params.get("weekly_seasonality", False):
         model.add_seasonality(name="weekly", period=7, fourier_order=5)
 
-    if custom_model_path:
+    if custom_model_path and backend is None:
         try:
             with open(custom_model_path, "rb") as f:
                 compiled_model = pickle.load(f)
