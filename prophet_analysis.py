@@ -1102,6 +1102,26 @@ def train_prophet_model(
     # Drop collinear regressors first and capture removed columns
     regressors_df, dropped_cols = drop_collinear_features(regressors_df, return_dropped=True)
 
+    # ------------------------------------------------------------------
+    # Ensure lag/rolling features are constructed on a continuous timeline
+    # covering the entire training data. If ``regressors_df`` has already
+    # been sliced to a train subset, reindex it to the full date range and
+    # propagate known values forward so that lagged features remain valid.
+    # Boolean/indicator features are filled with 0 when missing.
+    # ------------------------------------------------------------------
+    full_train_index = pd.date_range(
+        regressors_df.index.min(), prophet_df['ds'].max(), freq='D'
+    )
+    full_regs = regressors_df.reindex(full_train_index)
+    flag_cols = [
+        c
+        for c in full_regs.columns
+        if 'flag' in c or c.startswith('is_') or c.startswith('call_lag') or c == 'post_policy'
+    ]
+    full_regs[flag_cols] = full_regs[flag_cols].fillna(0)
+    full_regs = full_regs.ffill().fillna(0)
+    regressors_df = full_regs.loc[prophet_df['ds']]
+
     # Restrict regressors to mitigate collinearity
     # Use standardized raw visitor and chatbot counts
     important_regressors = [
@@ -1162,6 +1182,12 @@ def train_prophet_model(
     if capacity is not None:
         future['cap'] = capacity
 
+    # Extend the completed regressor matrix to cover the forecast horizon
+    full_index = pd.date_range(full_regs.index.min(), future['ds'].max(), freq='D')
+    full_regs = full_regs.reindex(full_index)
+    full_regs[flag_cols] = full_regs[flag_cols].fillna(0)
+    full_regs = full_regs.ffill().fillna(0)
+
     # Determine official holiday dates for future regressor flags
     holiday_dates = pd.to_datetime(
         holidays_df[holidays_df['holiday'] == 'holiday']['ds']
@@ -1189,7 +1215,7 @@ def train_prophet_model(
     future_regs[reg_cols] = future_regs[reg_cols].astype("float64")
 
     # Overlay known regressor values from historical data
-    known = regressors_df.reindex(future_regs.index)
+    known = full_regs.reindex(future_regs.index)
     for col in future_regs.columns:
         if col in known.columns:
             mask = known[col].notna()
