@@ -9,3 +9,17 @@ def test_write_summary_creates_file(tmp_path):
     text = path.read_text()
     assert 'NaN' in text
     assert text.startswith('metric,value')
+
+
+def test_write_summary_preserves_nan_columns(tmp_path):
+    df = pd.DataFrame({
+        'horizon_days': [1, 7],
+        'MAE': [0.5, 0.7],
+        'RMSE': [0.6, 0.8],
+        'MAPE': [float('nan'), float('nan')],
+    })
+    path = tmp_path / 'metrics.csv'
+    write_summary(df, path)
+    text = path.read_text()
+    assert text.splitlines()[0] == 'horizon_days,MAE,RMSE,MAPE'
+    assert text.strip().endswith('NaN')
