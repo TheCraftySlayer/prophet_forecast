@@ -189,6 +189,50 @@ def winsorize_quantile(series, lower_q=0.01, upper_q=0.99):
     return series.clip(lower, upper)
 
 
+def box_cox_transform(series: pd.Series, lmbda: float | None = None) -> tuple[pd.Series, float, float]:
+    """Return Box-Cox transformed series along with ``lambda`` and applied shift."""
+    arr = series.astype("float64").to_numpy()
+    shift = 0.0
+    if (arr <= 0).any():
+        shift = abs(arr.min()) + 1.0
+        arr = arr + shift
+
+    if lmbda is None:
+        grid = np.linspace(-2.0, 2.0, 41)
+        log_arr = np.log(arr)
+        n = arr.size
+
+        def llf(l: float) -> float:
+            if l == 0:
+                transformed = log_arr
+            else:
+                transformed = (arr ** l - 1) / l
+            var = transformed.var(ddof=1)
+            return -n / 2 * np.log(var) + (l - 1) * log_arr.sum()
+
+        scores = [llf(l) for l in grid]
+        lmbda = float(grid[int(np.argmax(scores))])
+
+    if lmbda == 0:
+        transformed = np.log(arr)
+    else:
+        transformed = (arr ** lmbda - 1) / lmbda
+
+    return pd.Series(transformed, index=series.index), lmbda, shift
+
+
+def inv_box_cox_transform(series: pd.Series, lmbda: float, shift: float = 0.0) -> pd.Series:
+    """Invert a Box-Cox transformation."""
+    arr = series.to_numpy(dtype="float64")
+    if lmbda == 0:
+        out = np.exp(arr)
+    else:
+        out = np.power(lmbda * arr + 1, 1 / lmbda)
+    if shift:
+        out = out - shift
+    return pd.Series(out, index=series.index)
+
+
 def drop_collinear_features(
     df: pd.DataFrame, threshold: float = 0.9, return_dropped: bool = False
 ) -> pd.DataFrame | tuple[pd.DataFrame, list[str]]:
@@ -911,6 +955,7 @@ def train_prophet_model(
     prophet_kwargs=None,
     log_transform=False,
     likelihood="normal",
+    transform: str | None = None,
 ):
     """
     Train Prophet model with custom components
@@ -923,6 +968,8 @@ def train_prophet_model(
         model_params: Optional dictionary of parameters to pass to Prophet
         likelihood: Distribution for the likelihood ('normal', 'poisson',
             or 'neg_binomial')
+        transform: Optional transformation to apply to the target ('log' or
+            'box-cox'). ``log_transform`` is honored when ``transform`` is None.
         
     Returns:
         Trained Prophet model, forecast DataFrame, future DataFrame
@@ -964,9 +1011,15 @@ def train_prophet_model(
 
     prophet_df = prophet_df.copy()
     prophet_df['cap'] = 1000
+    if transform is None and log_transform:
+        transform = "log"
 
-    if log_transform:
+    bc_params: tuple[float, float] | None = None
+    if transform == "log":
         prophet_df['y'] = np.log1p(prophet_df['y'])
+    elif transform == "box-cox":
+        prophet_df['y'], lam, shift = box_cox_transform(prophet_df['y'])
+        bc_params = (lam, shift)
 
 
     custom_model_path = None
@@ -1119,10 +1172,15 @@ def train_prophet_model(
     logger.info("Making forecast")
     forecast = model.predict(future)
 
-    if log_transform:
+    if transform == "log":
         for col in ['yhat', 'yhat_lower', 'yhat_upper']:
             if col in forecast:
                 forecast[col] = np.expm1(forecast[col])
+    elif transform == "box-cox" and bc_params is not None:
+        lam, shift = bc_params
+        for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+            if col in forecast:
+                forecast[col] = inv_box_cox_transform(forecast[col], lam, shift)
 
     forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
         forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
@@ -2269,8 +2327,21 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
     return output_file
 
 
-def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=False, forecast=None, scaler=None):
-    """Cross‑validate the Prophet model and report MAE and RMSE."""
+def evaluate_prophet_model(
+    model,
+    prophet_df,
+    cv_params=None,
+    log_transform=False,
+    forecast=None,
+    scaler=None,
+    transform: str | None = None,
+):
+    """Cross‑validate the Prophet model and report MAE and RMSE.
+
+    Parameters mirror :func:`train_prophet_model`. When ``transform`` is
+    ``'log'`` or ``'box-cox'`` the function inverse-transforms the predictions
+    before computing metrics.
+    """
 
     if cv_params is None:
         cv_params = {}
@@ -2327,10 +2398,26 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
         _ensure_tbb_on_path()
         _fit_prophet_with_fallback(model, history)
 
-    if log_transform:
+    if transform is None and log_transform:
+        transform = "log"
+
+    if transform == "log":
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
             if col in df_cv.columns:
                 df_cv[col] = np.expm1(df_cv[col])
+        if forecast is not None:
+            for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+                if col in forecast.columns:
+                    forecast[col] = np.expm1(forecast[col])
+    elif transform == "box-cox":
+        _, lam, shift = box_cox_transform(prophet_df['y'])
+        for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
+            if col in df_cv.columns:
+                df_cv[col] = inv_box_cox_transform(df_cv[col], lam, shift)
+        if forecast is not None:
+            for col in ['yhat', 'yhat_lower', 'yhat_upper']:
+                if col in forecast.columns:
+                    forecast[col] = inv_box_cox_transform(forecast[col], lam, shift)
 
     if scaler is not None:
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:

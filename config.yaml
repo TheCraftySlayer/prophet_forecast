@@ -12,6 +12,7 @@ model:
   changepoint_range: 0.9
   regressor_prior_scale: 0.05
   growth: logistic
+  transform: log
   mcmc_samples: 0
   interval_width: 0.8
   weekly_seasonality: true

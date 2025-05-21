@@ -120,8 +120,10 @@ mail-outs, assessment deadlines, a May 2025 campaign and nearby county
 holidays. Only a 3‑day moving average of visitor counts and raw chatbot
 queries are retained as regressors. Lagged call counts at 1- and 7-day intervals are also used as regressors to mitigate autocorrelation.
 
-The modeling pipeline applies a `log1p` transform to the target series to
-stabilize variance and then back‑transforms predictions to the original scale.
+The modeling pipeline applies either a logarithmic or Box‑Cox transform to the
+target series (controlled by `model.transform` in `config.yaml`). By default a
+`log1p` transform is used and predictions are back‑transformed to the original
+scale.
 
 The results, including forecasts and plots, will be saved in the specified output directory.
 The exported Excel report (`prophet_call_predictions_v3.xlsx`) now includes
