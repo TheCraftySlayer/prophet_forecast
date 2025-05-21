@@ -469,7 +469,9 @@ def load_time_series_sqlite(
     finally:
         conn.close()
 
-    df["date_parsed"] = pd.to_datetime(df[date_col], errors="coerce")
+    df["date_parsed"] = pd.to_datetime(
+        df[date_col], format="%m/%d/%y", errors="coerce"
+    )
     df = df.dropna(subset=["date_parsed"])
     series = df.set_index("date_parsed")[value_col].sort_index()
     full_idx = pd.date_range(series.index.min(), series.index.max(), freq="D")
@@ -541,8 +543,12 @@ def load_time_series(path: Path, metric: str = "call") -> pd.Series:
     else:
         raise ValueError(f"Unsupported file format: {path}")
 
-    # Convert date column to datetime
-    df["date_parsed"] = pd.to_datetime(df[date_col], errors="coerce")
+    # Convert date column to datetime using known format per metric
+    if metric == "call":
+        fmt = "%m/%d/%y"
+    else:
+        fmt = "%m/%d/%Y"
+    df["date_parsed"] = pd.to_datetime(df[date_col], format=fmt, errors="coerce")
     df = df.dropna(subset=["date_parsed"])
 
     # Return the time series with all days, filling missing weekends with 0
@@ -579,12 +585,13 @@ def verify_date_formats(call_path, visit_path, chat_path):
         else:
             logger.info(f"{name}: {df['date'].iloc[0]}")
 
-    # Parse dates flexibly, accepting two- or four-digit years
+    # Parse dates with explicit formats
     for name, df in [("Calls", call_df), ("Visits", visit_df), ("Queries", chat_df)]:
         if df.empty:
             continue
-        dates = pd.to_datetime(df['date'], errors="coerce")
-        logger.info(f"{name}: Successfully parsed {len(dates.dropna())} dates")
+        fmt = "%m/%d/%y" if name == "Calls" else "%m/%d/%Y"
+        dates = pd.to_datetime(df['date'], format=fmt, errors="coerce").dropna()
+        logger.info(f"{name}: Successfully parsed {len(dates)} dates")
 
 
 def build_flag_series(dates: pd.DatetimeIndex, dates_list: list) -> pd.Series:
@@ -621,7 +628,9 @@ def prepare_data(
     calls_dates = load_time_series(call_path, metric="call").index
     visits_dates = load_time_series(visit_path, metric="visit").index
     chat_dates = pd.to_datetime(
-        pd.read_csv(chat_path)['date'], errors="coerce"
+        pd.read_csv(chat_path)["date"],
+        format="%m/%d/%Y",
+        errors="coerce",
     ).dropna()
 
     # Log date ranges
@@ -658,6 +667,7 @@ def prepare_data(
     chat = (
         pd.to_datetime(
             chat_df[dt_col],
+            format="%m/%d/%Y",
             errors="coerce",
         )
         .dropna()
