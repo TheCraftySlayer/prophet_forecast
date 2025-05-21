@@ -414,10 +414,13 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
                 mapes.append(df_p['mape'].mean())
             else:
                 nonzero = df_cv['y'] != 0
-                mape = (
-                    np.abs(df_cv.loc[nonzero, 'y'] - df_cv.loc[nonzero, 'yhat']) /
-                    np.abs(df_cv.loc[nonzero, 'y'])
-                ).mean() * 100 if nonzero.any() else float('inf')
+                if nonzero.any():
+                    mape = (
+                        np.abs(df_cv.loc[nonzero, 'y'] - df_cv.loc[nonzero, 'yhat'])
+                        / np.abs(df_cv.loc[nonzero, 'y'])
+                    ).mean() * 100
+                else:
+                    mape = 0.0
                 mapes.append(mape)
         except Exception as e:
             logger.warning(f"Error with hyperparameter combination {params}: {str(e)}")
@@ -2071,12 +2074,14 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
     nonzero = result["actual"] != 0
-    mape = (
-        (result.loc[nonzero, "abs_error"] / result.loc[nonzero, "actual"])
-        .mean() * 100
-        if nonzero.any()
-        else float("nan")
-    )
+    if nonzero.any():
+        mape = (
+            (result.loc[nonzero, "abs_error"] / result.loc[nonzero, "actual"])
+            .mean()
+            * 100
+        )
+    else:
+        mape = 0.0
 
     resid_std = result["error"].std(ddof=0)
     result["lower"] = result["predicted"] - 1.96 * resid_std
@@ -2101,12 +2106,14 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             mae_h = sub["abs_error"].mean()
             rmse_h = np.sqrt((sub["error"] ** 2).mean())
             nonzero = sub["actual"] != 0
-            mape_h = (
-                (sub.loc[nonzero, "abs_error"] / sub.loc[nonzero, "actual"])
-                .mean() * 100
-                if nonzero.any()
-                else float("nan")
-            )
+            if nonzero.any():
+                mape_h = (
+                    (sub.loc[nonzero, "abs_error"] / sub.loc[nonzero, "actual"])
+                    .mean()
+                    * 100
+                )
+            else:
+                mape_h = 0.0
             horizon_rows.append([h, mae_h, rmse_h, mape_h])
     horizon_df = pd.DataFrame(
         horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE"]
@@ -2568,12 +2575,13 @@ def evaluate_prophet_model(
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
         nonzero = sub['y'] != 0
-        mape_h = (
-            (np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) / np.abs(sub.loc[nonzero, 'y']))
-            .mean() * 100
-            if nonzero.any()
-            else float('nan')
-        )
+        if nonzero.any():
+            mape_h = (
+                (np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) / np.abs(sub.loc[nonzero, 'y']))
+                .mean() * 100
+            )
+        else:
+            mape_h = 0.0
         horizon_rows.append([h, mae_h, rmse_h, mape_h])
     horizon_table = pd.DataFrame(
         horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE']
