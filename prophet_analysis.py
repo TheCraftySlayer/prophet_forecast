@@ -128,7 +128,7 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 # Global tuning options
 POLICY_LOWER = True
 PROPHET_KWARGS = {
-    "yearly_seasonality": False,
+    "yearly_seasonality": "auto",
     "weekly_seasonality": False,
     "daily_seasonality": False,
 }

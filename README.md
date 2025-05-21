@@ -1,6 +1,6 @@
 # Prophet Forecast Analysis
 
-This project forecasts customer service call volume using [Prophet](https://github.com/facebook/prophet). It merges historical call, visitor and chatbot query data and trains a forecasting model. The script also produces diagnostic charts and exports predictions for upcoming business days. In addition to visitor and query counts, the model now includes explicit flags for notice-of-value mail-outs, assessment deadlines, county holidays and a short campaign period. Prophet's built‑in yearly and weekly seasonalities are disabled in favor of these custom regressors.
+This project forecasts customer service call volume using [Prophet](https://github.com/facebook/prophet). It merges historical call, visitor and chatbot query data and trains a forecasting model. The script also produces diagnostic charts and exports predictions for upcoming business days. In addition to visitor and query counts, the model now includes explicit flags for notice-of-value mail-outs, assessment deadlines, county holidays and a short campaign period. Prophet's built‑in weekly seasonality is disabled in favor of a custom component while yearly seasonality is automatically enabled when sufficient history is available.
 
 ## Disclaimer
 
@@ -143,6 +143,7 @@ hyperparameters are now tuned for a more flexible trend:
 - `uncertainty_samples=300`
 - `regressor_prior_scale=0.05`
 - `likelihood=normal`
+- `yearly_seasonality=auto`
 - `weekly_seasonality=false` and a custom weekly component with `fourier_order=5`
 - `capacity` sets the logistic growth cap (defaults to 110% of training max)
 
