@@ -127,8 +127,8 @@ def run_forecast(cfg: dict) -> None:
         future_periods=30,
         model_params=model_params,
         prophet_kwargs=prophet_kwargs,
-        log_transform=True,
         likelihood=cfg["model"].get("likelihood", "normal"),
+        transform=cfg["model"].get("transform", "log"),
     )
 
     cv_params = cfg.get("cross_validation", {})
@@ -136,9 +136,9 @@ def run_forecast(cfg: dict) -> None:
         model,
         prophet_df,
         cv_params=cv_params,
-        log_transform=True,
         forecast=forecast,
         scaler=None,
+        transform=cfg["model"].get("transform", "log"),
     )
     summary.to_csv(out_dir / "summary.csv", index=False)
     horizon_table.to_csv(out_dir / "horizon_metrics.csv", index=False)
