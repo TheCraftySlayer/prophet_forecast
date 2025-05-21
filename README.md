@@ -118,7 +118,7 @@ above the 99th percentile are winsorized to
 reduce the impact of extreme spikes. Dummy variables mark periods for notice
 mail-outs, assessment deadlines, a May 2025 campaign and nearby county
 holidays. Only a 3‑day moving average of visitor counts and raw chatbot
-queries are retained as regressors.
+queries are retained as regressors. Lagged call counts at 1- and 7-day intervals are also used as regressors to mitigate autocorrelation.
 
 The modeling pipeline applies a `log1p` transform to the target series to
 stabilize variance and then back‑transforms predictions to the original scale.
