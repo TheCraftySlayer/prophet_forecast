@@ -2089,7 +2089,17 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE"]
     )
 
+
     return result, metrics, horizon_df
+
+
+def write_summary(df: pd.DataFrame, path: Path) -> Path:
+    """Write a metrics DataFrame to ``path`` preserving ``NaN`` values."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False, na_rep="NaN")
+    return path
 
 
 def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
@@ -2138,7 +2148,7 @@ def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
     else:
         # Fallback when openpyxl is unavailable - still export all data
         baseline_df.to_csv(excel_path, index=False)
-        metrics.to_csv(output_dir / "baseline_metrics.csv", index=False)
+        write_summary(metrics, output_dir / "baseline_metrics.csv")
         input_data.to_csv(output_dir / "baseline_input_data.csv", index=False)
 
     return excel_path
