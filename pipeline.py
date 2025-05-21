@@ -162,8 +162,8 @@ def run_forecast(cfg: dict) -> None:
     prophet_metrics["coverage"] = coverage
     metrics = pd.concat(
         [
-            metrics_baseline,
-            prophet_metrics[["model", "horizon", "MAE", "RMSE", "coverage"]],
+            metrics_baseline[["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]],
+            prophet_metrics[["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]],
         ],
         ignore_index=True,
     )
