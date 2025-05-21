@@ -41,15 +41,14 @@ python -m pip install "pandas<2.0"
 
 For testing purposes the repository contains lightweight stub versions of
 `pandas`, a small `numpy_stub` module and a few other libraries. They allow the unit tests to run
-without installing the real dependencies. When running the forecasting script
-for real analysis you should ensure the actual packages are installed and tell
-the script to use them by setting the `USE_REAL_LIBS` environment variable to
-`1`:
+without installing the real dependencies. The real packages are used by default.
+Set the environment variable `USE_STUB_LIBS` to `1` if you want to force the stub
+implementations:
 
 ```bash
-set USE_REAL_LIBS=1  # Windows
+set USE_STUB_LIBS=1  # Windows
 # or
-export USE_REAL_LIBS=1  # Unix
+export USE_STUB_LIBS=1  # Unix
 ```
 
 This variable is already set in the provided `run_forecast.bat` script, which
@@ -63,16 +62,15 @@ Windows text editor.
 
 ## Usage
 
-Before running the scripts ensure the real third-party packages are used by
-setting the environment variable `USE_REAL_LIBS` to `1`. This disables the
-lightweight stub modules bundled with the repository.
+The real third-party packages are used by default. If you need to run the tests
+with the lightweight stubs set `USE_STUB_LIBS=1`.
 
 Run the analysis using the YAML configuration:
 
 ```bash
-set USE_REAL_LIBS=1 && python pipeline.py config.yaml            # Windows
+python pipeline.py config.yaml            # Windows
 # or
-USE_REAL_LIBS=1 python pipeline.py config.yaml                   # Unix
+python pipeline.py config.yaml                   # Unix
 ```
 
 The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
