@@ -53,7 +53,8 @@ export USE_STUB_LIBS=1  # Unix
 
 This variable is already set in the provided `run_forecast.bat` script, which
 honors a `PYTHON` environment variable so you can choose a custom interpreter.
-If it
+If no interpreter is specified, the batch file automatically uses a
+`.venv\Scripts\python.exe` next to the repository when available. If it
 does not run when double-clicked, ensure it uses Windows
 line endings (CRLF). Some Git tools may check out the repository with Unix
 line endings, which can cause `cmd.exe` to ignore the script. You can convert
