@@ -53,7 +53,9 @@ export USE_REAL_LIBS=1  # Unix
 ```
 
 This variable is already set in the provided `run_forecast.bat` script.
-The batch file accepts an optional output directory as a second argument. If it
+The batch file accepts an optional output directory as a second argument and
+honors a `PYTHON` environment variable so you can choose a custom interpreter.
+If it
 does not run when double-clicked, ensure it uses Windows
 line endings (CRLF). Some Git tools may check out the repository with Unix
 line endings, which can cause `cmd.exe` to ignore the script. You can convert
