@@ -1939,6 +1939,13 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
+    nonzero = result["actual"] != 0
+    mape = (
+        (result.loc[nonzero, "abs_error"] / result.loc[nonzero, "actual"])
+        .mean() * 100
+        if nonzero.any()
+        else float("nan")
+    )
 
     resid_std = result["error"].std(ddof=0)
     result["lower"] = result["predicted"] - 1.96 * resid_std
@@ -1951,8 +1958,8 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
     metrics = pd.DataFrame(
         {
-            "metric": ["MAE", "RMSE", "Coverage"],
-            "value": [mae, rmse, coverage],
+            "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
+            "value": [mae, rmse, mape, coverage],
         }
     )
 
@@ -1962,8 +1969,17 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             sub = result.head(h)
             mae_h = sub["abs_error"].mean()
             rmse_h = np.sqrt((sub["error"] ** 2).mean())
-            horizon_rows.append([h, mae_h, rmse_h])
-    horizon_df = pd.DataFrame(horizon_rows, columns=["horizon_days", "MAE", "RMSE"])
+            nonzero = sub["actual"] != 0
+            mape_h = (
+                (sub.loc[nonzero, "abs_error"] / sub.loc[nonzero, "actual"])
+                .mean() * 100
+                if nonzero.any()
+                else float("nan")
+            )
+            horizon_rows.append([h, mae_h, rmse_h, mape_h])
+    horizon_df = pd.DataFrame(
+        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE"]
+    )
 
     return result, metrics, horizon_df
 
@@ -2129,10 +2145,15 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
 
             # Metrics for Prophet predictions
             prophet_metrics = pd.DataFrame({
-                'metric': ['MAE', 'RMSE'],
+                'metric': ['MAE', 'RMSE', 'MAPE'],
                 'value': [
                     recent_performance['abs_error'].mean(),
-                    np.sqrt((recent_performance['error'] ** 2).mean())
+                    np.sqrt((recent_performance['error'] ** 2).mean()),
+                    (
+                        recent_performance.loc[recent_performance['actual'] != 0, 'abs_error']
+                        .div(recent_performance.loc[recent_performance['actual'] != 0, 'actual'])
+                        .mean() * 100
+                    )
                 ]
             })
             prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
@@ -2292,6 +2313,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
 
     mae  = df_p['mae' ].mean() if 'mae'  in df_p else float('nan')
     rmse = df_p['rmse'].mean() if 'rmse' in df_p else float('nan')
+    mape = df_p['mape'].mean() if 'mape' in df_p else float('nan')
 
     coverage = (
         ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean() * 100
@@ -2310,6 +2332,7 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
 
     logger.info(
         f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
+        f"MAPE {mape:.2f} | "
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
     )
 
@@ -2334,8 +2357,8 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
             logger.warning("AR(1) correction failed: %s", exc)
 
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "Coverage"],
-        "value":  [mae,  rmse,  coverage]
+        "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
+        "value":  [mae,  rmse,  mape, coverage]
     })
 
     horizon_rows = []
@@ -2346,8 +2369,17 @@ def evaluate_prophet_model(model, prophet_df, cv_params=None, log_transform=Fals
             continue
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
-        horizon_rows.append([h, mae_h, rmse_h])
-    horizon_table = pd.DataFrame(horizon_rows, columns=['horizon_days','MAE','RMSE'])
+        nonzero = sub['y'] != 0
+        mape_h = (
+            (np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) / np.abs(sub.loc[nonzero, 'y']))
+            .mean() * 100
+            if nonzero.any()
+            else float('nan')
+        )
+        horizon_rows.append([h, mae_h, rmse_h, mape_h])
+    horizon_table = pd.DataFrame(
+        horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE']
+    )
 
     diag = pd.DataFrame({
         'lag': lb.index,
