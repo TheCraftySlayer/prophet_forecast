@@ -393,7 +393,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
     all_params = [dict(zip(param_grid.keys(), v)) for v in itertools.product(*param_grid.values())]
     
     # Storage for results
-    mapes = []
+    devs = []
     
     # Use cross-validation to evaluate
     for i, params in enumerate(all_params):
@@ -424,28 +424,20 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
             df_p = performance_metrics(df_cv, rolling_window=1)
-            if 'mape' in df_p.columns:
-                mapes.append(df_p['mape'].mean())
+            if 'mean_poisson_deviance' in df_p.columns:
+                devs.append(df_p['mean_poisson_deviance'].mean())
             else:
-                nonzero = df_cv['y'] != 0
-                if nonzero.any():
-                    mape = (
-                        np.abs(df_cv.loc[nonzero, 'y'] - df_cv.loc[nonzero, 'yhat'])
-                        / np.abs(df_cv.loc[nonzero, 'y'])
-                    ).mean() * 100
-                else:
-                    mape = 0.0
-                mapes.append(mape)
+                devs.append(_mean_poisson_deviance(df_cv['y'], df_cv['yhat']))
         except Exception as e:
             logger.warning(f"Error with hyperparameter combination {params}: {str(e)}")
-            mapes.append(float('inf'))  # Assign worst possible score
+            devs.append(float('inf'))  # Assign worst possible score
     
     # Find best parameters
-    if not mapes or all(np.isinf(mapes)):
+    if not devs or all(np.isinf(devs)):
         logger.warning("All hyperparameter combinations failed, using defaults")
         best_params = {'changepoint_prior_scale': 0.2, 'seasonality_prior_scale': 0.01, 'holidays_prior_scale': 5}
     else:
-        best_params = all_params[np.argmin(mapes)]
+        best_params = all_params[np.argmin(devs)]
     
     logger.info(f"Best parameters found: {best_params}")
     return best_params
@@ -1308,6 +1300,24 @@ def _check_horizon_escalation(horizon_df: pd.DataFrame, threshold: float = 0.2) 
                 escalation * 100,
             )
 
+
+def _mean_poisson_deviance(actual, predicted) -> float:
+    """Return the mean Poisson deviance between ``actual`` and ``predicted``.
+
+    Parameters
+    ----------
+    actual : array-like
+        Observed counts.
+    predicted : array-like
+        Predicted counts.
+    """
+    a = np.asarray(actual, dtype=float)
+    p = np.asarray(predicted, dtype=float)
+    p = np.clip(p, 1e-8, None)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        terms = p - a + a * np.where(a > 0, np.log(a / p), 0.0)
+    return float(np.mean(2.0 * terms))
+
 def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     """Create a simple ensemble of multiple Prophet models"""
     logger = logging.getLogger(__name__)
@@ -2103,9 +2113,9 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     -------
     Tuple of ``(forecast_df, metrics_df, horizon_df)`` where ``forecast_df``
     contains the date, predicted call count, actual call count and error
-    columns. The ``metrics_df`` provides MAE, RMSE and Coverage aggregated over
-    the period. ``horizon_df`` contains horizon specific metrics for 1-, 7- and
-    14-day horizons.
+    columns. The ``metrics_df`` provides MAE, RMSE, Poisson deviance and
+    Coverage aggregated over the period. ``horizon_df`` contains horizon
+    specific metrics for 1-, 7- and 14-day horizons.
     """
 
     df_sorted = df.sort_index()
@@ -2129,19 +2139,7 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
-    nonzero = result["actual"].abs() > 1e-8
-    if nonzero.any():
-        mape = (
-            (result.loc[nonzero, "abs_error"] / result.loc[nonzero, "actual"].abs())
-            .mean()
-            * 100
-        )
-    else:
-        mape = (
-            (2 * result["abs_error"] / (result["actual"].abs() + result["predicted"].abs()))
-            .mean()
-            * 100
-        )
+    pdev = _mean_poisson_deviance(result["actual"], result["predicted"])
 
     resid_std = result["error"].std(ddof=0)
     result["lower"] = result["predicted"] - 1.96 * resid_std
@@ -2154,8 +2152,8 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
     metrics = pd.DataFrame(
         {
-            "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
-            "value": [mae, rmse, mape, coverage],
+            "metric": ["MAE", "RMSE", "Poisson" , "Coverage"],
+            "value": [mae, rmse, pdev, coverage],
         }
     )
 
@@ -2165,22 +2163,10 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             sub = result.head(h)
             mae_h = sub["abs_error"].mean()
             rmse_h = np.sqrt((sub["error"] ** 2).mean())
-            nonzero = sub["actual"].abs() > 1e-8
-            if nonzero.any():
-                mape_h = (
-                    (sub.loc[nonzero, "abs_error"] / sub.loc[nonzero, "actual"].abs())
-                    .mean()
-                    * 100
-                )
-            else:
-                mape_h = (
-                    (2 * sub["abs_error"] / (sub["actual"].abs() + sub["predicted"].abs()))
-                    .mean()
-                    * 100
-                )
-            horizon_rows.append([h, mae_h, rmse_h, mape_h])
+            pdev_h = _mean_poisson_deviance(sub["actual"], sub["predicted"])
+            horizon_rows.append([h, mae_h, rmse_h, pdev_h])
     horizon_df = pd.DataFrame(
-        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE"]
+        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "Poisson"]
     )
 
 
@@ -2193,14 +2179,9 @@ def write_summary(df: pd.DataFrame, path: Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     df_out = df.copy()
-    if {"actual", "predicted"} <= set(df_out.columns) and "MAPE" not in df_out.columns:
-        abs_err = (df_out["actual"] - df_out["predicted"]).abs()
-        nonzero = df_out["actual"].abs() > 1e-8
-        if nonzero.any():
-            mape = (abs_err[nonzero] / df_out.loc[nonzero, "actual"].abs()).mean() * 100
-        else:
-            mape = (2 * abs_err / (df_out["actual"].abs() + df_out["predicted"].abs())).mean() * 100
-        df_out["MAPE"] = mape
+    if {"actual", "predicted"} <= set(df_out.columns) and "Poisson" not in df_out.columns:
+        pdev = _mean_poisson_deviance(df_out["actual"], df_out["predicted"])
+        df_out["Poisson"] = pdev
     try:
         df_out.to_csv(path, index=False, na_rep="NaN")
     except TypeError:
@@ -2379,15 +2360,11 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
 
             # Metrics for Prophet predictions
             prophet_metrics = pd.DataFrame({
-                'metric': ['MAE', 'RMSE', 'MAPE'],
+                'metric': ['MAE', 'RMSE', 'Poisson'],
                 'value': [
                     recent_performance['abs_error'].mean(),
                     np.sqrt((recent_performance['error'] ** 2).mean()),
-                    (
-                        recent_performance.loc[recent_performance['actual'] != 0, 'abs_error']
-                        .div(recent_performance.loc[recent_performance['actual'] != 0, 'actual'])
-                        .mean() * 100
-                    )
+                    _mean_poisson_deviance(recent_performance['actual'], recent_performance['predicted'])
                 ]
             })
             prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
@@ -2576,16 +2553,7 @@ def evaluate_prophet_model(
 
     mae  = df_p['mae' ].mean() if 'mae'  in df_p else float('nan')
     rmse = df_p['rmse'].mean() if 'rmse' in df_p else float('nan')
-    mape = df_p['mape'].mean() if 'mape' in df_p else float('nan')
-    if not (mape == mape):
-        abs_err = (df_cv['y'] - df_cv['yhat']).abs()
-        nonzero = df_cv['y'].abs() > 1e-8
-        if nonzero.any():
-            mape = (abs_err[nonzero] / df_cv.loc[nonzero, 'y'].abs()).mean() * 100
-        else:
-            mape = (
-                2 * abs_err / (df_cv['y'].abs() + df_cv['yhat'].abs())
-            ).mean() * 100
+    pdev = _mean_poisson_deviance(df_cv['y'], df_cv['yhat'])
 
     coverage = (
         ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean() * 100
@@ -2604,7 +2572,7 @@ def evaluate_prophet_model(
 
     logger.info(
         f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
-        f"MAPE {mape:.2f} | "
+        f"Poisson {pdev:.2f} | "
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
     )
 
@@ -2650,8 +2618,8 @@ def evaluate_prophet_model(
             break
 
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
-        "value":  [mae,  rmse,  mape, coverage]
+        "metric": ["MAE", "RMSE", "Poisson", "Coverage"],
+        "value":  [mae,  rmse,  pdev, coverage]
     })
 
     horizon_rows = []
@@ -2662,20 +2630,10 @@ def evaluate_prophet_model(
             continue
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
-        nonzero = sub['y'].abs() > 1e-8
-        if nonzero.any():
-            mape_h = (
-                (np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) / sub.loc[nonzero, 'y'].abs())
-                .mean() * 100
-            )
-        else:
-            mape_h = (
-                (2 * np.abs(sub['y'] - sub['yhat']) / (sub['y'].abs() + sub['yhat'].abs()))
-                .mean() * 100
-            )
-        horizon_rows.append([h, mae_h, rmse_h, mape_h])
+        pdev_h = _mean_poisson_deviance(sub['y'], sub['yhat'])
+        horizon_rows.append([h, mae_h, rmse_h, pdev_h])
     horizon_table = pd.DataFrame(
-        horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE']
+        horizon_rows, columns=['horizon_days','MAE','RMSE','Poisson']
     )
 
     _check_horizon_escalation(horizon_table)

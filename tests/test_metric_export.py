@@ -16,12 +16,12 @@ def test_write_summary_preserves_nan_columns(tmp_path):
         'horizon_days': [1, 7],
         'MAE': [0.5, 0.7],
         'RMSE': [0.6, 0.8],
-        'MAPE': [float('nan'), float('nan')],
+        'Poisson': [float('nan'), float('nan')],
     })
     path = tmp_path / 'metrics.csv'
     write_summary(df, path)
     text = path.read_text()
-    assert text.splitlines()[0] == 'horizon_days,MAE,RMSE,MAPE'
+    assert text.splitlines()[0] == 'horizon_days,MAE,RMSE,Poisson'
     assert text.strip().endswith('NaN')
 
 
@@ -32,7 +32,7 @@ def test_write_summary_returns_path(tmp_path):
     assert returned == path
 
 
-def test_write_summary_computes_mape(tmp_path):
+def test_write_summary_computes_poisson(tmp_path):
     df = pd.DataFrame({
         'actual': [0, 0],
         'predicted': [1, 2]
@@ -40,4 +40,4 @@ def test_write_summary_computes_mape(tmp_path):
     path = tmp_path / 'preds.csv'
     write_summary(df, path)
     text = path.read_text()
-    assert 'MAPE' in text.splitlines()[0]
+    assert 'Poisson' in text.splitlines()[0]
