@@ -23,3 +23,10 @@ def test_write_summary_preserves_nan_columns(tmp_path):
     text = path.read_text()
     assert text.splitlines()[0] == 'horizon_days,MAE,RMSE,MAPE'
     assert text.strip().endswith('NaN')
+
+
+def test_write_summary_returns_path(tmp_path):
+    df = pd.DataFrame({'metric': ['MAE'], 'value': [1.0]})
+    path = tmp_path / 'out.csv'
+    returned = write_summary(df, path)
+    assert returned == path
