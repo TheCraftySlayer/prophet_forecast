@@ -754,6 +754,20 @@ def prepare_data(call_path,
         threshold = n_sigmas * 1.4826 * mad
         return (diff > threshold).astype(int)
 
+    # Down-weight extreme spikes prior to feature creation
+    tmp_ma7 = df["call_count"].rolling(7, min_periods=1).mean()
+    tmp_std7 = df["call_count"].rolling(7, min_periods=1).std().fillna(0)
+    residual = df["call_count"] - tmp_ma7
+    extreme_mask = residual.abs() > 3 * tmp_std7
+    if extreme_mask.any():
+        logger.info(
+            "Winsorizing %d extreme outliers (>3 \u03c3 residuals)",
+            extreme_mask.sum(),
+        )
+        clipped = tmp_ma7 + np.sign(residual) * 3 * tmp_std7
+        df.loc[extreme_mask, "call_count"] = clipped.loc[extreme_mask]
+    df["extreme_outlier"] = extreme_mask.astype(int)
+
     event_mask = (
         df['county_holiday_flag'] != 0
     ) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
