@@ -52,8 +52,7 @@ set USE_REAL_LIBS=1  # Windows
 export USE_REAL_LIBS=1  # Unix
 ```
 
-This variable is already set in the provided `run_forecast.bat` script.
-The batch file accepts an optional output directory as a second argument and
+This variable is already set in the provided `run_forecast.bat` script, which
 honors a `PYTHON` environment variable so you can choose a custom interpreter.
 If it
 does not run when double-clicked, ensure it uses Windows
@@ -68,17 +67,16 @@ Before running the scripts ensure the real third-party packages are used by
 setting the environment variable `USE_REAL_LIBS` to `1`. This disables the
 lightweight stub modules bundled with the repository.
 
-Run the analysis by providing the three input CSV files and an optional output directory:
+Run the analysis using the YAML configuration:
 
 ```bash
 set USE_REAL_LIBS=1 && python pipeline.py config.yaml            # Windows
 # or
-USE_REAL_LIBS=1 python pipeline.py config.yaml                    # Unix
+USE_REAL_LIBS=1 python pipeline.py config.yaml                   # Unix
 ```
 
 The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
-parameters continue to be read from `config.yaml`. The command simply overrides
-the input and output paths before calling the pipeline.
+parameters, including input and output paths, are read from `config.yaml`.
 
 If your data resides in a SQLite database you can point the loader to the
 appropriate tables using a `path.db:table` notation in `config.yaml`:
