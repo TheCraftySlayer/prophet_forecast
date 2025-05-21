@@ -1232,6 +1232,23 @@ def _check_forecast_sanity(forecast: pd.DataFrame) -> None:
         if amplitude > 0.2:
             logger.warning('Yearly seasonality amplitude exceeds ±20%')
 
+
+def _check_horizon_escalation(horizon_df: pd.DataFrame, threshold: float = 0.2) -> None:
+    """Warn if the 14-day MAE exceeds the 1-day MAE by ``threshold``."""
+    logger = logging.getLogger(__name__)
+    try:
+        mae_1 = float(horizon_df.loc[horizon_df['horizon_days'] == 1, 'MAE'])
+        mae_14 = float(horizon_df.loc[horizon_df['horizon_days'] == 14, 'MAE'])
+    except Exception:
+        return
+    if mae_1 == mae_1 and mae_14 == mae_14 and mae_1 > 0:
+        escalation = (mae_14 - mae_1) / mae_1
+        if escalation > threshold:
+            logger.warning(
+                '14-day horizon MAE escalates %.1f%% from 1-day horizon',
+                escalation * 100,
+            )
+
 def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     """Create a simple ensemble of multiple Prophet models"""
     logger = logging.getLogger(__name__)
@@ -2561,6 +2578,8 @@ def evaluate_prophet_model(
     horizon_table = pd.DataFrame(
         horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE']
     )
+
+    _check_horizon_escalation(horizon_table)
 
     diag = pd.DataFrame({
         'lag': lb.index,
