@@ -259,17 +259,41 @@ def inv_box_cox_transform(series: pd.Series, lmbda: float, shift: float = 0.0) -
 
 
 def drop_collinear_features(
-    df: pd.DataFrame, threshold: float = 0.9, return_dropped: bool = False
+    df: pd.DataFrame, threshold: float = 10.0, return_dropped: bool = False
 ) -> pd.DataFrame | tuple[pd.DataFrame, list[str]]:
-    """Drop highly collinear numeric features from the DataFrame."""
+    """Drop collinear numeric features using variance inflation factor (VIF)."""
     logger = logging.getLogger(__name__)
-    numeric_df = df.select_dtypes(include=np.number).drop(columns=['call_count'], errors='ignore')
-    corr = numeric_df.corr().abs()
-    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-    to_drop = [col for col in upper.columns if any(upper[col] > threshold)]
+    numeric_df = df.select_dtypes(include=np.number).drop(columns=["call_count"], errors="ignore")
+
+    to_drop: list[str] = []
+    try:
+        from statsmodels.stats.outliers_influence import variance_inflation_factor  # type: ignore
+
+        X = numeric_df.dropna().copy()
+        X = X.assign(const=1)
+        while True:
+            vif = pd.Series(
+                [variance_inflation_factor(X.values, i) for i in range(len(X.columns) - 1)],
+                index=X.columns[:-1],
+            )
+            if vif.empty:
+                break
+            max_vif = float(vif.max())
+            if max_vif < threshold:
+                break
+            drop_col = str(vif.idxmax())
+            to_drop.append(drop_col)
+            X = X.drop(columns=[drop_col])
+    except Exception as exc:  # pragma: no cover - statsmodels may be missing
+        logger.warning("VIF calculation failed: %s; falling back to correlation", exc)
+        corr = numeric_df.corr().abs()
+        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+        to_drop.extend([col for col in upper.columns if any(upper[col] > 0.9)])
+
     if to_drop:
         logger.info("Dropping collinear features: %s", to_drop)
-        df = df.drop(columns=to_drop)
+        df = df.drop(columns=[c for c in to_drop if c in df.columns])
+
     if return_dropped:
         return df, to_drop
     return df
