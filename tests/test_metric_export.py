@@ -30,3 +30,14 @@ def test_write_summary_returns_path(tmp_path):
     path = tmp_path / 'out.csv'
     returned = write_summary(df, path)
     assert returned == path
+
+
+def test_write_summary_computes_mape(tmp_path):
+    df = pd.DataFrame({
+        'actual': [0, 0],
+        'predicted': [1, 2]
+    })
+    path = tmp_path / 'preds.csv'
+    write_summary(df, path)
+    text = path.read_text()
+    assert 'MAPE' in text.splitlines()[0]

@@ -1081,11 +1081,22 @@ def train_prophet_model(
     existing_regs = [r for r in important_regressors if r in regressors_df.columns]
 
     if existing_regs:
-        significant_regs, _ = compute_regressor_significance(
+        significant_regs, pvals = compute_regressor_significance(
             regressors_df[existing_regs], prophet_df['y']
         )
+        # Drop chat, notice, deadline and campaign flags when not significant
+        drop_if_nonsig = {
+            'chatbot_count',
+            'notice_flag',
+            'deadline_flag',
+            'is_campaign',
+        }
+        for reg in drop_if_nonsig:
+            if reg in existing_regs and reg not in significant_regs:
+                logger.info('Dropping non-significant regressor: %s', reg)
+                existing_regs.remove(reg)
         important_regressors = [
-            r for r in significant_regs if r in regressors_df.columns
+            r for r in significant_regs if r in existing_regs
         ]
     else:
         important_regressors = []
@@ -1190,6 +1201,9 @@ def train_prophet_model(
             future.drop(columns=col, inplace=True)
         for col in train_cols - future_cols:
             future[col] = 0
+
+    ordered = ['ds'] + sorted(train_cols)
+    future = future.reindex(columns=ordered)
     
     # Make forecast
     logger.info("Making forecast")
@@ -2073,15 +2087,19 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
-    nonzero = result["actual"] != 0
+    nonzero = result["actual"].abs() > 1e-8
     if nonzero.any():
         mape = (
-            (result.loc[nonzero, "abs_error"] / result.loc[nonzero, "actual"])
+            (result.loc[nonzero, "abs_error"] / result.loc[nonzero, "actual"].abs())
             .mean()
             * 100
         )
     else:
-        mape = 0.0
+        mape = (
+            (2 * result["abs_error"] / (result["actual"].abs() + result["predicted"].abs()))
+            .mean()
+            * 100
+        )
 
     resid_std = result["error"].std(ddof=0)
     result["lower"] = result["predicted"] - 1.96 * resid_std
@@ -2105,15 +2123,19 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             sub = result.head(h)
             mae_h = sub["abs_error"].mean()
             rmse_h = np.sqrt((sub["error"] ** 2).mean())
-            nonzero = sub["actual"] != 0
+            nonzero = sub["actual"].abs() > 1e-8
             if nonzero.any():
                 mape_h = (
-                    (sub.loc[nonzero, "abs_error"] / sub.loc[nonzero, "actual"])
+                    (sub.loc[nonzero, "abs_error"] / sub.loc[nonzero, "actual"].abs())
                     .mean()
                     * 100
                 )
             else:
-                mape_h = 0.0
+                mape_h = (
+                    (2 * sub["abs_error"] / (sub["actual"].abs() + sub["predicted"].abs()))
+                    .mean()
+                    * 100
+                )
             horizon_rows.append([h, mae_h, rmse_h, mape_h])
     horizon_df = pd.DataFrame(
         horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE"]
@@ -2128,8 +2150,17 @@ def write_summary(df: pd.DataFrame, path: Path) -> Path:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    df_out = df.copy()
+    if {"actual", "predicted"} <= set(df_out.columns) and "MAPE" not in df_out.columns:
+        abs_err = (df_out["actual"] - df_out["predicted"]).abs()
+        nonzero = df_out["actual"].abs() > 1e-8
+        if nonzero.any():
+            mape = (abs_err[nonzero] / df_out.loc[nonzero, "actual"].abs()).mean() * 100
+        else:
+            mape = (2 * abs_err / (df_out["actual"].abs() + df_out["predicted"].abs())).mean() * 100
+        df_out["MAPE"] = mape
     try:
-        df.to_csv(path, index=False, na_rep="NaN")
+        df_out.to_csv(path, index=False, na_rep="NaN")
     except TypeError:
         # Fallback for minimal DataFrame implementation without ``na_rep``
         import csv
@@ -2137,8 +2168,8 @@ def write_summary(df: pd.DataFrame, path: Path) -> Path:
 
         with open(path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(df.columns)
-            for row in df.itertuples(index=False, name=None):
+            writer.writerow(df_out.columns)
+            for row in df_out.itertuples(index=False, name=None):
                 writer.writerow(
                     ["NaN" if isinstance(x, float) and math.isnan(x) else x for x in row]
                 )
@@ -2504,6 +2535,15 @@ def evaluate_prophet_model(
     mae  = df_p['mae' ].mean() if 'mae'  in df_p else float('nan')
     rmse = df_p['rmse'].mean() if 'rmse' in df_p else float('nan')
     mape = df_p['mape'].mean() if 'mape' in df_p else float('nan')
+    if not (mape == mape):
+        abs_err = (df_cv['y'] - df_cv['yhat']).abs()
+        nonzero = df_cv['y'].abs() > 1e-8
+        if nonzero.any():
+            mape = (abs_err[nonzero] / df_cv.loc[nonzero, 'y'].abs()).mean() * 100
+        else:
+            mape = (
+                2 * abs_err / (df_cv['y'].abs() + df_cv['yhat'].abs())
+            ).mean() * 100
 
     coverage = (
         ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean() * 100
@@ -2530,13 +2570,15 @@ def evaluate_prophet_model(
     lb = acorr_ljungbox(residuals, lags=14, return_df=True)
     ac_flag = (lb['lb_pvalue'] < 0.05) | (lb['lb_stat'] > 0.2)
     autocorr_flag = bool(ac_flag.any())
-    if lb['lb_pvalue'].min() < 0.05:
+    attempts = 0
+    while lb['lb_pvalue'].min() < 0.05 and attempts < 2:
+        attempts += 1
         try:
-            # Fit a simple autoregressive model using lag-1 and lag-7 terms
             r = residuals.fillna(0.0)
             X = np.column_stack([
                 r.shift(1).fillna(0.0).to_numpy(),
                 r.shift(7).fillna(0.0).to_numpy(),
+                r.shift(14).fillna(0.0).to_numpy(),
             ])
             beta, _, _, _ = np.linalg.lstsq(X, r.to_numpy(), rcond=None)
             adj = X @ beta
@@ -2545,12 +2587,13 @@ def evaluate_prophet_model(
                 df_cv['yhat_lower'] += adj
                 df_cv['yhat_upper'] += adj
             if forecast is not None:
-                hist = list(r.iloc[-7:].to_numpy())
+                hist = list(r.iloc[-14:].to_numpy())
                 fut_adj = []
                 for _ in range(len(forecast)):
                     x1 = hist[-1]
-                    x7 = hist[0]
-                    pred = beta[0] * x1 + beta[1] * x7
+                    x7 = hist[-7]
+                    x14 = hist[0]
+                    pred = beta[0]*x1 + beta[1]*x7 + beta[2]*x14
                     fut_adj.append(pred)
                     hist.append(pred)
                     hist.pop(0)
@@ -2558,8 +2601,11 @@ def evaluate_prophet_model(
                 forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
                     forecast[['yhat', 'yhat_lower', 'yhat_upper']].add(fut_adj[:, None])
                 )
+            residuals = df_cv['y'] - df_cv['yhat']
+            lb = acorr_ljungbox(residuals, lags=14, return_df=True)
         except Exception as exc:
             logger.warning("AR hybrid correction failed: %s", exc)
+            break
 
     summary = pd.DataFrame({
         "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
@@ -2574,14 +2620,17 @@ def evaluate_prophet_model(
             continue
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
-        nonzero = sub['y'] != 0
+        nonzero = sub['y'].abs() > 1e-8
         if nonzero.any():
             mape_h = (
-                (np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) / np.abs(sub.loc[nonzero, 'y']))
+                (np.abs(sub.loc[nonzero, 'y'] - sub.loc[nonzero, 'yhat']) / sub.loc[nonzero, 'y'].abs())
                 .mean() * 100
             )
         else:
-            mape_h = 0.0
+            mape_h = (
+                (2 * np.abs(sub['y'] - sub['yhat']) / (sub['y'].abs() + sub['yhat'].abs()))
+                .mean() * 100
+            )
         horizon_rows.append([h, mae_h, rmse_h, mape_h])
     horizon_table = pd.DataFrame(
         horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE']
