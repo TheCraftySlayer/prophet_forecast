@@ -43,6 +43,27 @@ from prophet_analysis import (
 )
 
 
+def configure_logging(log_file: Path) -> None:
+    """Send cmdstanpy INFO logs to a file while keeping console warnings."""
+    formatter = logging.Formatter("%(asctime)s %(levelname)s:%(message)s")
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(logging.INFO)
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.WARNING)
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    logging.getLogger("cmdstanpy").setLevel(logging.INFO)
+
+
 def _checksum(path: Path) -> str:
     """Return SHA1 checksum for the given file."""
     h = hashlib.sha1()
@@ -66,9 +87,6 @@ def load_config(path: Path) -> dict:
 def run_forecast(cfg: dict) -> None:
     """Execute the forecasting pipeline using a configuration dictionary."""
     logger = logging.getLogger(__name__)
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s"
-    )
 
     call_path = Path(cfg["data"]["calls"])
     visit_path = Path(cfg["data"]["visitors"])
@@ -78,6 +96,8 @@ def run_forecast(cfg: dict) -> None:
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = base_out / run_id
     out_dir.mkdir(exist_ok=True)
+
+    configure_logging(out_dir / "cmdstan.log")
 
     df, regressors = prepare_data(
         call_path, visit_path, chat_path, events=cfg.get("events", {}), scale_features=True
