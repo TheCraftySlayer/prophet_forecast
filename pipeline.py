@@ -34,7 +34,7 @@ from prophet_analysis import (
     evaluate_prophet_model,
     train_prophet_model,
     tune_prophet_hyperparameters,
-    PROPHET_KWARGS,
+    build_prophet_kwargs,
     compute_naive_baseline,
     export_baseline_forecast,
     export_prophet_forecast,
@@ -79,18 +79,12 @@ def run_forecast(cfg: dict) -> None:
     out_dir = base_out / run_id
     out_dir.mkdir(exist_ok=True)
 
-    df, regressors = prepare_data(call_path, visit_path, chat_path, scale_features=True)
+    df, regressors = prepare_data(
+        call_path, visit_path, chat_path, events=cfg.get("events", {}), scale_features=True
+    )
     prophet_df = prepare_prophet_data(df)
 
-    prophet_kwargs = PROPHET_KWARGS.copy()
-    for key in [
-        "weekly_seasonality",
-        "yearly_seasonality",
-        "daily_seasonality",
-        "uncertainty_samples",
-    ]:
-        if key in cfg["model"]:
-            prophet_kwargs[key] = cfg["model"][key]
+    prophet_kwargs = build_prophet_kwargs(cfg["model"]) 
 
     best_params = tune_prophet_hyperparameters(
         prophet_df, prophet_kwargs=prophet_kwargs
@@ -106,8 +100,14 @@ def run_forecast(cfg: dict) -> None:
         "interval_width": cfg["model"].get("interval_width", 0.9),
         "growth": cfg["model"].get("growth", "linear"),
         "regressor_prior_scale": cfg["model"].get("regressor_prior_scale", 0.05),
+        "capacity": cfg["model"].get("capacity"),
+        "changepoints": cfg.get("events", {}).get("changepoints"),
     }
     model_params.update(best_params)
+
+    if not cfg["model"].get("enable_mcmc", False) and model_params.get("mcmc_samples", 0):
+        logger.warning("Ignoring mcmc_samples because enable_mcmc is false")
+        model_params["mcmc_samples"] = 0
 
     idx = df.index
     holiday_df = get_holidays_dataframe()
@@ -185,12 +185,10 @@ def run_forecast(cfg: dict) -> None:
         "visitors": _checksum(visit_path),
         "queries": _checksum(chat_path),
     }
-    log_path = Path("model_log.md")
-    with open(log_path, "a") as log_f:
-        log_f.write(f"\n### Run {run_id}\n")
-        log_f.write(f"- commit: {commit}\n")
-        log_f.write(f"- checksums: {json.dumps(checksums)}\n")
-        log_f.write(f"- params: {json.dumps(model_params)}\n")
+    logger.info("Run %s", run_id)
+    logger.info("commit: %s", commit)
+    logger.info("checksums: %s", json.dumps(checksums))
+    logger.info("params: %s", json.dumps(model_params))
 
 
 def pipeline(config_path: Path) -> None:

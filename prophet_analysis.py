@@ -129,9 +129,23 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 POLICY_LOWER = True
 PROPHET_KWARGS = {
     "yearly_seasonality": False,
-    "weekly_seasonality": True,
+    "weekly_seasonality": False,
     "daily_seasonality": False,
 }
+
+
+def build_prophet_kwargs(model_cfg: dict) -> dict:
+    """Return Prophet keyword arguments merged with defaults."""
+    kwargs = PROPHET_KWARGS.copy()
+    for key in [
+        "weekly_seasonality",
+        "yearly_seasonality",
+        "daily_seasonality",
+        "uncertainty_samples",
+    ]:
+        if key in model_cfg:
+            kwargs[key] = model_cfg[key]
+    return kwargs
 
 # Restore this directory in sys.path so local modules can be imported after the
 # heavy third-party libraries have been loaded.
@@ -588,14 +602,15 @@ def build_flag_series(dates: pd.DatetimeIndex, dates_list: list) -> pd.Series:
     return pd.Series(dates.normalize().isin(dt_list).astype(int), index=dates)
 
 
-def prepare_data(call_path,
-                 visit_path,
-                 chat_path,
-                 cleaned_calls=None,
-                 scale_features=True):
-    """
-    Prepare time series data with features for forecasting including May 2025 policy changes
-    """
+def prepare_data(
+    call_path,
+    visit_path,
+    chat_path,
+    cleaned_calls=None,
+    scale_features=True,
+    events: dict | None = None,
+):
+    """Prepare time series data with configurable event windows."""
 
     # Initialize logger first - moved to the beginning of the function
     logger = logging.getLogger(__name__)
@@ -712,6 +727,9 @@ def prepare_data(call_path,
         logger.info(f"Monday spike magnitude: {monday_spike:.1f}")
 
     # Flag events before outlier handling
+    if events is None:
+        events = {}
+
     deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq="MS")
     notice_dates = [
         pd.Timestamp(year, 3, 1) for year in range(idx.min().year, idx.max().year + 1)
@@ -729,21 +747,20 @@ def prepare_data(call_path,
     df['deadline_flag'] = df['deadline_flag'].astype(int)
     df['notice_flag'] = df['notice_flag'].astype(int)
 
-    # Flag for post-policy period starting May 2025
-    policy_start = pd.Timestamp('2025-05-01')
+    # Flag for post-policy period
+    policy_start = pd.to_datetime(events.get("policy_start", "2025-05-01"))
     df['post_policy'] = (df.index >= policy_start).astype(int)
 
-    # Flag for targeted campaign between 2025-05-01 and 2025-06-02
-    campaign_start = pd.Timestamp('2025-05-01')
-    campaign_end = pd.Timestamp('2025-06-02')
+    # Flag for targeted campaign
+    campaign_cfg = events.get("campaign", {})
+    campaign_start = pd.to_datetime(campaign_cfg.get("start", "2025-05-01"))
+    campaign_end = pd.to_datetime(campaign_cfg.get("end", "2025-06-02"))
     df['is_campaign'] = ((df.index >= campaign_start) & (df.index <= campaign_end)).astype(int)
     df['is_campaign'] = df['is_campaign'].shift(1).fillna(0).astype(int)
-    df['campaign_May2025'] = df['is_campaign']
 
     df['press_release_flag'] = df.index.isin(press_release_dates).astype(int)
 
-    df['holiday_flag'] = df['county_holiday_flag'].astype(int)
-    df['closure_flag'] = ((df['is_weekend'] == 1) | (df['holiday_flag'] == 1)).astype(int)
+    df['closure_flag'] = ((df['is_weekend'] == 1) | (df['county_holiday_flag'] == 1)).astype(int)
 
     # Indicator for business days (0 on weekends and county holidays)
     df['is_business_day'] = (
@@ -804,9 +821,10 @@ def prepare_data(call_path,
         if col in df.columns:
             df[col] = winsorize_quantile(df[col])
 
-    # Drop problematic flat-line period in May 2025
-    flat_start = pd.Timestamp("2025-05-06")
-    flat_end = pd.Timestamp("2025-05-13")
+    # Drop problematic flat-line period if configured
+    flat_cfg = events.get("flat_period", {})
+    flat_start = pd.to_datetime(flat_cfg.get("start", "2025-05-06"))
+    flat_end = pd.to_datetime(flat_cfg.get("end", "2025-05-13"))
     mask_flat = (df.index >= flat_start) & (df.index <= flat_end)
     if mask_flat.any():
         df = df.loc[~mask_flat]
@@ -983,10 +1001,13 @@ def train_prophet_model(
         regressors_df: DataFrame with regressor variables
         future_periods: Number of days to forecast
         model_params: Optional dictionary of parameters to pass to Prophet
+            (may include ``capacity`` for logistic growth)
         likelihood: Distribution for the likelihood ('normal', 'poisson',
             or 'neg_binomial')
         transform: Optional transformation to apply to the target ('log' or
             'box-cox'). ``log_transform`` is honored when ``transform`` is None.
+        If ``capacity`` is not supplied with logistic growth, it defaults to
+        110% of the training maximum.
         
     Returns:
         Trained Prophet model, forecast DataFrame, future DataFrame
@@ -1008,7 +1029,7 @@ def train_prophet_model(
         'changepoints': [
             pd.Timestamp('2023-11-01'),
             pd.Timestamp('2024-04-15'),
-            pd.Timestamp('2025-04-01')
+            pd.Timestamp('2025-04-01'),
         ],
         'seasonality_prior_scale': 0.01,
         'holidays_prior_scale': 5,
@@ -1016,7 +1037,8 @@ def train_prophet_model(
         'mcmc_samples': 0,
         'uncertainty_samples': 300,
         'growth': 'logistic',
-        'interval_width': 0.9
+        'interval_width': 0.9,
+        'capacity': None,
     }
 
     reg_prior_scale = 0.05
@@ -1025,9 +1047,15 @@ def train_prophet_model(
         reg_prior_scale = model_params.pop('regressor_prior_scale', reg_prior_scale)
         default_params.update(model_params)
 
+    capacity = default_params.pop('capacity', None)
 
     prophet_df = prophet_df.copy()
-    prophet_df['cap'] = 1000
+    if default_params.get('growth', 'linear') == 'logistic':
+        if capacity is None:
+            capacity = float(prophet_df['y'].max() * 1.1)
+        prophet_df['cap'] = capacity
+    else:
+        capacity = None
     if transform is None and log_transform:
         transform = "log"
 
@@ -1048,6 +1076,8 @@ def train_prophet_model(
             logger.warning("Falling back to normal likelihood")
 
     model = Prophet(**default_params)
+    if not default_params.get("weekly_seasonality", False):
+        model.add_seasonality(name="weekly", period=7, fourier_order=5)
 
     if custom_model_path:
         try:
@@ -1119,7 +1149,8 @@ def train_prophet_model(
     # Create future DataFrame
     logger.info(f"Creating future DataFrame with {future_periods} periods")
     future = model.make_future_dataframe(periods=future_periods, freq="B")
-    future['cap'] = 1000
+    if capacity is not None:
+        future['cap'] = capacity
 
     # Determine official holiday dates for future regressor flags
     holiday_dates = pd.to_datetime(
@@ -1140,7 +1171,8 @@ def train_prophet_model(
     future_regs['is_campaign'] = 0
     future_regs['post_policy'] = 0
     future_regs['press_release_flag'] = 0
-    future_regs['cap'] = 1000
+    if capacity is not None:
+        future_regs['cap'] = capacity
 
     # Ensure float dtypes before merging to avoid warnings
     reg_cols = list(future_regs.columns)
