@@ -403,9 +403,9 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
 
             df_cv = cross_validation(
                 m,
-                initial='365 days',
+                initial='180 days',
                 period='30 days',
-                horizon='30 days',
+                horizon='14 days',
                 parallel=None
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
@@ -1587,7 +1587,7 @@ def analyze_prophet_components(model, forecast, output_dir):
                 plt.close()
 
 
-def cross_validate_prophet(model, df, periods=14, horizon='14 days', initial='270 days'):
+def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='180 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
     df_cv = cross_validation(
         model,
@@ -2376,8 +2376,8 @@ def evaluate_prophet_model(
     if cv_params is None:
         cv_params = {}
 
-    initial = cv_params.get('initial', '365 days')
-    period = cv_params.get('period', '7 days')
+    initial = cv_params.get('initial', '180 days')
+    period = cv_params.get('period', '30 days')
     horizon = cv_params.get('horizon', '14 days')
     try:
         if pd.Timedelta(horizon).days > 14:
