@@ -1100,7 +1100,10 @@ def train_prophet_model(
     
 
     # Drop collinear regressors first and capture removed columns
-    regressors_df, dropped_cols = drop_collinear_features(regressors_df, return_dropped=True)
+    regressors_df, dropped_cols = drop_collinear_features(
+        regressors_df, return_dropped=True
+    )
+    removed_regs = set(dropped_cols)
 
     # Restrict regressors to mitigate collinearity
     # Use standardized raw visitor and chatbot counts
@@ -1135,11 +1138,17 @@ def train_prophet_model(
             if reg in existing_regs and reg not in significant_regs:
                 logger.info('Dropping non-significant regressor: %s', reg)
                 existing_regs.remove(reg)
+                removed_regs.add(reg)
         important_regressors = [
             r for r in significant_regs if r in existing_regs
         ]
     else:
         important_regressors = []
+
+    if removed_regs:
+        regressors_df = regressors_df.drop(
+            columns=[c for c in removed_regs if c in regressors_df.columns]
+        )
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
@@ -1195,14 +1204,17 @@ def train_prophet_model(
             mask = known[col].notna()
             future_regs.loc[mask, col] = known.loc[mask, col]
 
-    if dropped_cols:
-        future_regs.drop(columns=[c for c in dropped_cols if c in future_regs.columns], inplace=True)
+    if removed_regs:
+        future_regs.drop(
+            columns=[c for c in removed_regs if c in future_regs.columns],
+            inplace=True,
+        )
 
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
 
-    if dropped_cols:
-        future.drop(columns=[c for c in dropped_cols if c in future.columns], inplace=True)
+    if removed_regs:
+        future.drop(columns=[c for c in removed_regs if c in future.columns], inplace=True)
 
     # Ensure the logistic growth capacity column survives the merge
     if "cap_x" in future.columns:
