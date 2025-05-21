@@ -408,31 +408,36 @@ def read_csv(path, header='infer', names=None):
 
 # Datetime conversion
 
-def _parse_date(x):
+def _parse_date(x, fmt=None):
     if isinstance(x, datetime):
         return x
     if isinstance(x, date):
         return datetime.combine(x, datetime.min.time())
-    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y'):
+    if fmt is not None:
         try:
             return datetime.strptime(x, fmt)
+        except Exception:
+            return None
+    for pat in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y'):
+        try:
+            return datetime.strptime(x, pat)
         except Exception:
             continue
     return None
 
-def to_datetime(obj, errors='raise'):
+def to_datetime(obj, errors='raise', format=None):
     if isinstance(obj, Series):
-        data = [_parse_date(x) for x in obj.data]
+        data = [_parse_date(x, format) for x in obj.data]
         if errors == 'raise' and any(d is None for d in data):
             raise ValueError('could not parse some dates')
         return Series(data, obj.index, obj.name)
     elif isinstance(obj, list):
-        data = [_parse_date(x) for x in obj]
+        data = [_parse_date(x, format) for x in obj]
         if errors == 'raise' and any(d is None for d in data):
             raise ValueError('could not parse some dates')
         return [d for d in data]
     else:
-        d = _parse_date(obj)
+        d = _parse_date(obj, format)
         if d is None and errors == 'raise':
             raise ValueError(f'could not parse date {obj}')
         return d
