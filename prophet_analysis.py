@@ -46,6 +46,7 @@ import itertools
 import logging
 import pickle
 import random
+import math
 import re
 import sqlite3
 import tempfile
@@ -203,6 +204,51 @@ def drop_collinear_features(
     if return_dropped:
         return df, to_drop
     return df
+
+
+def compute_regressor_significance(
+    regressors: pd.DataFrame, target: pd.Series, alpha: float = 0.05
+) -> tuple[list[str], dict[str, float]]:
+    """Return regressors with p-values below ``alpha``.
+
+    The function uses ``statsmodels`` if available and falls back to a
+    correlation-based approximation when that fails.
+    """
+    logger = logging.getLogger(__name__)
+    significant: list[str] = []
+    pvals: dict[str, float] = {}
+
+    try:
+        import statsmodels.api as sm  # type: ignore
+
+        X = sm.add_constant(regressors)
+        model = sm.OLS(target, X, missing="drop").fit()
+        for col, pval in model.pvalues.items():
+            if col == "const":
+                continue
+            pvals[col] = float(pval)
+            if pval < alpha:
+                significant.append(col)
+    except Exception as exc:  # pragma: no cover - statsmodels may be missing
+        logger.warning("Falling back to correlation-based p-values: %s", exc)
+        n = len(target)
+        for col in regressors.columns:
+            x = regressors[col]
+            if x.std() == 0:
+                pvals[col] = 1.0
+                continue
+            r = np.corrcoef(x, target)[0, 1]
+            if np.isnan(r):
+                pvals[col] = 1.0
+                continue
+            t_stat = r * np.sqrt(n - 2) / np.sqrt(max(1e-12, 1 - r**2))
+            pval = math.erfc(abs(t_stat) / math.sqrt(2))
+            pvals[col] = float(pval)
+            if pval < alpha:
+                significant.append(col)
+
+    logger.info("Regressor p-values: %s", pvals)
+    return significant, pvals
 
 
 def compile_custom_stan_model(likelihood: str) -> Path | None:
@@ -942,6 +988,12 @@ def train_prophet_model(
     ]
 
     important_regressors = [r for r in important_regressors if r not in dropped_cols]
+
+    if important_regressors:
+        significant_regs, _ = compute_regressor_significance(
+            regressors_df[important_regressors], prophet_df['y']
+        )
+        important_regressors = [r for r in significant_regs if r in regressors_df.columns]
     
     for regressor in important_regressors:
         if regressor in regressors_df.columns:
