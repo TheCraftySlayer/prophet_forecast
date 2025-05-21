@@ -143,9 +143,13 @@ hyperparameters are now tuned for a more flexible trend:
 - `uncertainty_samples=300`
 - `regressor_prior_scale=0.05`
 - `likelihood=normal`
-- `weekly_seasonality=true` to include Prophet's built-in weekly component
+- `weekly_seasonality=false` and a custom weekly component with `fourier_order=5`
+- `capacity` sets the logistic growth cap (defaults to 110% of training max)
 
-You can modify these settings in `config.yaml` if desired.
+You can modify these settings in `config.yaml` if desired. Event windows such as
+campaign dates, policy start and any explicit changepoints also live in the
+configuration file. Set `enable_mcmc: true` only when you purposely want
+Bayesian sampling, otherwise any non-zero `mcmc_samples` value is ignored.
 
 ## Cross-validation discipline
 

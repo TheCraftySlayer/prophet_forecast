@@ -12,9 +12,7 @@ def dropping_cols(df, threshold=0.9, return_dropped=False):
     dropped = [
         c
         for c in [
-            'holiday_flag',
             'is_campaign',
-            'campaign_May2025',
             'is_weekend',
             'press_release_flag',
             'post_policy',
