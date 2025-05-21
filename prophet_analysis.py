@@ -756,6 +756,8 @@ def prepare_data(call_path,
     important_regs = [
         "visit_ma3",
         "chatbot_count",
+        "call_lag1",
+        "call_lag7",
         "deadline_flag",
         "notice_flag",
         "is_campaign",
@@ -995,6 +997,8 @@ def train_prophet_model(
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
+        'call_lag1',
+        'call_lag7',
         'notice_flag',
         'deadline_flag',
         'is_campaign',
@@ -1042,6 +1046,8 @@ def train_prophet_model(
     # Required regressors only
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
+    future_regs['call_lag1'] = 0
+    future_regs['call_lag7'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
     future_regs['is_campaign'] = 0
@@ -1081,6 +1087,8 @@ def train_prophet_model(
     check_cols = [
         'visit_ma3',
         'chatbot_count',
+        'call_lag1',
+        'call_lag7',
         'notice_flag',
         'deadline_flag',
         'is_campaign',
@@ -1185,6 +1193,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
+        'call_lag1',
+        'call_lag7',
         'notice_flag',
         'deadline_flag',
     ]
