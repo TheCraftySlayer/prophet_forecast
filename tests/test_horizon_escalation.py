@@ -8,7 +8,6 @@ def test_horizon_escalation_warning(caplog):
         'horizon_days': [1, 14],
         'MAE': [10.0, 13.0],
         'RMSE': [0.0, 0.0],
-        'MAPE': [0.0, 0.0],
     })
     with caplog.at_level(logging.WARNING):
         _check_horizon_escalation(df, threshold=0.2)
@@ -20,7 +19,6 @@ def test_horizon_escalation_ok(caplog):
         'horizon_days': [1, 14],
         'MAE': [10.0, 11.0],
         'RMSE': [0.0, 0.0],
-        'MAPE': [0.0, 0.0],
     })
     with caplog.at_level(logging.WARNING):
         _check_horizon_escalation(df, threshold=0.2)
