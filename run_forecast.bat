@@ -9,12 +9,13 @@ set "CONFIG=%1"
 if "%CONFIG%"=="" set "CONFIG=config.yaml"
 
 set "OUT=%2"
+if "%PYTHON%"=="" set "PYTHON=python"
 set USE_REAL_LIBS=1
 
 if not "%OUT%"=="" (
-    python pipeline.py "%CONFIG%" --out "%OUT%"
+    %PYTHON% pipeline.py "%CONFIG%" --out "%OUT%"
 ) else (
-    python pipeline.py "%CONFIG%"
+    %PYTHON% pipeline.py "%CONFIG%"
 )
 
 pause
