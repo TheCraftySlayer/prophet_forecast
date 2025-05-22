@@ -86,7 +86,7 @@ except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
 
     def _missing_prophet(*_args, **_kwargs):
-        raise ImportError("prophet package is required for forecasting features")
+        raise ImportError("All hyperparameter combinations failed. Check Prophet setup and data integrity explicitly.")
 
     def cross_validation(*args, **kwargs):
         return _missing_prophet()
