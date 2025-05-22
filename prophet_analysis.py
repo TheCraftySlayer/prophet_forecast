@@ -926,6 +926,11 @@ def prepare_data(
     # Drop highly collinear regressors to avoid instability
     regressors = drop_collinear_features(regressors)
 
+    # Remove any remaining NaNs before returning the feature matrix
+    mask = df.dropna().index
+    df = df.loc[mask].reset_index(drop=True)
+    regressors = regressors.loc[mask].reset_index(drop=True)
+
     return df, regressors
 
 def create_prophet_holidays(holiday_dates, deadline_dates, closure_dates=None, press_release_dates=None):
@@ -1360,8 +1365,12 @@ def train_prophet_model(
             future[col] = 0
 
     ordered = ['ds'] + sorted(train_cols)
-    future = future.reindex(columns=ordered)
-    
+    future = future.reindex(columns=ordered, fill_value=0)
+
+    # Verify regressor matrices before forecasting
+    assert prophet_df.isna().sum().sum() == 0
+    assert list(prophet_df.columns) == list(future.columns)
+
     # Make forecast
     logger.info("Making forecast")
     forecast = model.predict(future)
