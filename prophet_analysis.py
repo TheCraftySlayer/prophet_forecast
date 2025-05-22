@@ -75,6 +75,20 @@ from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tsa.arima.model import ARIMA
 
+
+def _get_prophet():
+    """Return the Prophet class if available, else ``None``."""
+    try:
+        from prophet import Prophet as P
+        return P
+    except ImportError:
+        try:
+            from fbprophet import Prophet as P  # type: ignore
+            return P
+        except ImportError:
+            return None
+
+
 # Import Prophet
 try:
     from prophet import Prophet
@@ -446,7 +460,10 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
         logger.info(f"Testing hyperparameter combination {i+1}/{len(all_params)}")
         
         try:
-            m = Prophet(
+            P = _get_prophet()
+            if P is None:
+                raise ImportError("prophet package is required for forecasting features")
+            m = P(
                 growth='linear',
                 interval_width=0.9,
                 seasonality_mode='additive',
@@ -1068,7 +1085,8 @@ def train_prophet_model(
     logger = logging.getLogger(__name__)
     logger.info("Training Prophet model")
 
-    if Prophet is None:
+    P = _get_prophet()
+    if P is None:
         raise ImportError("prophet package is required for forecasting features")
     
     # Initialize Prophet model with optional tuned parameters
@@ -1140,7 +1158,7 @@ def train_prophet_model(
         except Exception as e:  # pragma: no cover - prophet may be missing
             logger.warning(f"Could not create custom Stan backend: {e}")
 
-    model = Prophet(stan_backend=backend, **default_params) if backend else Prophet(**default_params)
+    model = P(stan_backend=backend, **default_params) if backend else P(**default_params)
     if not default_params.get("weekly_seasonality", False):
         model.add_seasonality(name="weekly", period=7, fourier_order=5)
 
@@ -1434,22 +1452,25 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     # Create multiple Prophet models with different hyperparameters
     models = []
     
+    P = _get_prophet()
+    if P is None:
+        raise ImportError("prophet package is required for forecasting features")
     # Base model
-    model1 = Prophet(
+    model1 = P(
         seasonality_mode='multiplicative',
         changepoint_prior_scale=0.2,
         **PROPHET_KWARGS,
     )
     
     # More flexible model
-    model2 = Prophet(
+    model2 = P(
         seasonality_mode='multiplicative',
         changepoint_prior_scale=0.2,
         **PROPHET_KWARGS,
     )
     
     # More rigid model
-    model3 = Prophet(
+    model3 = P(
         seasonality_mode='multiplicative',
         changepoint_prior_scale=0.2,
         **PROPHET_KWARGS,
@@ -1831,7 +1852,10 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
         
         # Base model performance
         future_periods = len(test_df)
-        model_copy = Prophet(
+        P = _get_prophet()
+        if P is None:
+            raise ImportError("prophet package is required for forecasting features")
+        model_copy = P(
             seasonality_mode='multiplicative',
             changepoint_prior_scale=model.changepoint_prior_scale,
             **PROPHET_KWARGS,
@@ -1884,7 +1908,10 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                 test_df[feature] = 0  # Neutralize the feature
                 
                 # Refit and evaluate
-                test_model = Prophet(
+                P = _get_prophet()
+                if P is None:
+                    raise ImportError("prophet package is required for forecasting features")
+                test_model = P(
                     seasonality_mode='multiplicative',
                     changepoint_prior_scale=model.changepoint_prior_scale,
                     **PROPHET_KWARGS,
@@ -1940,7 +1967,10 @@ def analyze_feature_importance(model, prophet_df, quick_mode=True):
                     'yearly_seasonality': feature != 'yearly_seasonality',
                     'weekly_seasonality': feature != 'weekly_seasonality',
                 }
-                test_model = Prophet(
+                P = _get_prophet()
+                if P is None:
+                    raise ImportError("prophet package is required for forecasting features")
+                test_model = P(
                     seasonality_mode='multiplicative',
                     changepoint_prior_scale=model.changepoint_prior_scale,
                     **custom_kwargs,
@@ -2619,7 +2649,10 @@ def evaluate_prophet_model(
             "Autocorrelation detected, refitting with changepoint_prior_scale=%s",
             current_scale,
         )
-        model = Prophet(
+        P = _get_prophet()
+        if P is None:
+            raise ImportError("prophet package is required for forecasting features")
+        model = P(
             growth=model.growth,
             interval_width=model.interval_width,
             seasonality_mode=model.seasonality_mode,
