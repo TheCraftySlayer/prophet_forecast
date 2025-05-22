@@ -22,6 +22,11 @@ if not exist ".venv\Scripts\python.exe" (
 REM Activate venv
 call ".venv\Scripts\activate.bat"
 
+REM --- Explicit Cleanup of Problematic Packages and Cache ---
+pip uninstall numpy matplotlib prophet cmdstanpy scikit-learn statsmodels seaborn -y
+pip cache purge
+for /d /r . %%d in (__pycache__) do @if exist "%%d" rmdir /s /q "%%d"
+
 REM --- Dependency sync ---
 python -m pip install --upgrade pip
 if exist requirements.txt (
