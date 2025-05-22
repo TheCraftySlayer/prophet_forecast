@@ -928,8 +928,8 @@ def prepare_data(
 
     # Remove any remaining NaNs before returning the feature matrix
     mask = df.dropna().index
-    df = df.loc[mask].reset_index(drop=True)
-    regressors = regressors.loc[mask].reset_index(drop=True)
+    df = df.loc[mask]
+    regressors = regressors.loc[mask]
 
     return df, regressors
 
