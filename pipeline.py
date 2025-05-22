@@ -1,3 +1,6 @@
+from prophet import Prophet
+print("Explicit Prophet import successful:", Prophet)
+
 import os
 import sys
 from pathlib import Path
