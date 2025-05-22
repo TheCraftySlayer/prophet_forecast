@@ -1,72 +1,233 @@
-@echo off
-rem run_forecast.bat – resilient runner
-setlocal ENABLEDELAYEDEXPANSION
+from prophet import Prophet
+print("Explicit Prophet import successful:", Prophet)
 
-:: ------------------------------------------------------------------
-:: Default to stub libs unless caller overrides
-if not defined USE_STUB_LIBS set "USE_STUB_LIBS=1"
+import os
+import sys
+from pathlib import Path
 
-:: ------------------------------------------------------------------
-:: Resolve script directory and switch to it
-set "BASEDIR=%~dp0"
-cd /d "%BASEDIR%"
+# By default the real third-party packages are used. Set ``USE_STUB_LIBS=1``
+# to temporarily prioritise the lightweight stubs bundled with the repository
+# for faster testing.
+_USE_STUB_LIBS = os.getenv("USE_STUB_LIBS") == "1"
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if not _USE_STUB_LIBS:
+    # When using the real libraries ensure this repository's directory is
+    # searched *after* site-packages so our stub modules do not shadow the
+    # installed packages.
+    sys.path = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _THIS_DIR]
+    sys.path.append(_THIS_DIR)
+try:
+    from ruamel.yaml import YAML  # type: ignore
+except ModuleNotFoundError:
+    try:
+        import yaml  # type: ignore
+    except ModuleNotFoundError as e:  # pragma: no cover - environment missing YAML libs
+        raise ModuleNotFoundError(
+            "Missing YAML parser. Install ruamel.yaml or PyYAML to run this script."
+        ) from e
+    YAML = None
+import hashlib
+import json
+import logging
+import subprocess
+from datetime import datetime
 
-:: ------------------------------------------------------------------
-:: Choose interpreter: caller-supplied PYTHON → local venv → system
-set "_PYTHON=.venv\Scripts\python.exe"
-if not exist "%_PYTHON%" (
-    where py >nul 2>&1 || (echo Python launcher missing & exit /b 1)
-    py -3.10 -m venv .venv || exit /b 1
+import pandas as pd
+from holidays_calendar import get_holidays_dataframe
+from prophet_analysis import (
+    create_prophet_holidays,
+    prepare_data,
+    prepare_prophet_data,
+    evaluate_prophet_model,
+    train_prophet_model,
+    tune_prophet_hyperparameters,
+    build_prophet_kwargs,
+    compute_naive_baseline,
+    export_baseline_forecast,
+    export_prophet_forecast,
+    model_to_json,
+    write_summary,
 )
-call ".venv\Scripts\activate.bat" || exit /b 1
 
-:: ------------------------------------------------------------------
-:: Create and activate local venv when using bundled interpreter
-if "%_PYTHON%"==".venv\Scripts\python.exe" (
-    if not exist "%_PYTHON%" (
-        where py >nul 2>&1 || (echo Python launcher missing & exit /b 1)
-        py -3.10 -m venv .venv || exit /b 1
+
+def configure_logging(log_file: Path) -> None:
+    """Send cmdstanpy INFO logs to a file while keeping console warnings."""
+    formatter = logging.Formatter("%(asctime)s %(levelname)s:%(message)s")
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(logging.INFO)
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.WARNING)
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    logging.getLogger("cmdstanpy").setLevel(logging.INFO)
+
+
+def _checksum(path: Path) -> str:
+    """Return SHA1 checksum for the given file."""
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_config(path: Path) -> dict:
+    """Load YAML configuration using ruamel if available else PyYAML."""
+    if YAML is not None:
+        yaml_loader = YAML(typ="safe")
+        with open(path, "r") as f:
+            return yaml_loader.load(f)
+    else:  # Fallback to PyYAML
+        with open(path, "r") as f:
+            return yaml.safe_load(f)
+
+
+def run_forecast(cfg: dict) -> None:
+    """Execute the forecasting pipeline using a configuration dictionary."""
+    logger = logging.getLogger(__name__)
+
+    call_path = Path(cfg["data"]["calls"])
+    visit_path = Path(cfg["data"]["visitors"])
+    chat_path = Path(cfg["data"]["queries"])
+    base_out = Path(cfg.get("output", "prophet_output"))
+    base_out.mkdir(exist_ok=True)
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = base_out / run_id
+    out_dir.mkdir(exist_ok=True)
+
+    configure_logging(out_dir / "cmdstan.log")
+
+    df, regressors = prepare_data(
+        call_path, visit_path, chat_path, events=cfg.get("events", {}), scale_features=True
     )
-    call ".venv\Scripts\activate.bat" || exit /b 1
-)
+    prophet_df = prepare_prophet_data(df)
 
-:: ------------------------------------------------------------------
-:: One-time dependency bootstrap
-if "%_PYTHON%"==".venv\Scripts\python.exe" if not exist ".venv\.deps_installed" (
+    prophet_kwargs = build_prophet_kwargs(cfg["model"]) 
 
-    rem --- core tooling
-    "%_PYTHON%" -m pip install --upgrade pip setuptools wheel || exit /b 1
+    best_params = tune_prophet_hyperparameters(
+        prophet_df, prophet_kwargs=prophet_kwargs
+    )
+    model_params = {
+        "seasonality_mode": cfg["model"]["seasonality_mode"],
+        "seasonality_prior_scale": cfg["model"]["seasonality_prior_scale"],
+        "holidays_prior_scale": cfg["model"]["holidays_prior_scale"],
+        "changepoint_prior_scale": cfg["model"]["changepoint_prior_scale"],
+        "n_changepoints": cfg["model"].get("n_changepoints", 8),
+        "changepoint_range": cfg["model"].get("changepoint_range", 0.8),
+        "mcmc_samples": cfg["model"]["mcmc_samples"],
+        "interval_width": cfg["model"].get("interval_width", 0.9),
+        "growth": cfg["model"].get("growth", "linear"),
+        "regressor_prior_scale": cfg["model"].get("regressor_prior_scale", 0.05),
+        "capacity": cfg["model"].get("capacity"),
+        "changepoints": cfg.get("events", {}).get("changepoints"),
+    }
+    model_params.update(best_params)
 
-    rem --- project requirements
-    "%_PYTHON%" -m pip install -r requirements.txt || exit /b 1
+    if not cfg["model"].get("enable_mcmc", False) and model_params.get("mcmc_samples", 0):
+        logger.warning("Ignoring mcmc_samples because enable_mcmc is false")
+        model_params["mcmc_samples"] = 0
 
-    rem --- pin cmdstanpy; stop NumPy-2 pull
-    "%_PYTHON%" -m pip install --no-deps --upgrade-strategy=only-if-needed cmdstanpy==1.2.5 || exit /b 1
-
-    rem --- verify dependency graph
-    "%_PYTHON%" -m pip check || exit /b 1
-
-    rem --- ensure CmdStan 2.36.0 (only if make exists)
-    where mingw32-make >nul 2>&1 && (
-        set "_TMP=%TEMP%\install_cmdstan_!RANDOM!.py"
-        >"!_TMP!" (
-            echo import cmdstanpy, pathlib
-            echo tgt = pathlib.Path.home^(^) / ".cmdstan" / "cmdstan-2.36.0"
-            echo if not tgt.exists^(^):
-            echo     cmdstanpy.install_cmdstan^(version="2.36.0", overwrite=False^)
-        )
-        "%_PYTHON%" "!_TMP!" || exit /b 1
-        del "!_TMP!"
+    idx = df.index
+    holiday_df = get_holidays_dataframe()
+    mask = (
+        (holiday_df["event"] == "county_holiday")
+        & (holiday_df["date"] >= idx.min())
+        & (holiday_df["date"] <= idx.max())
+    )
+    holiday_dates = holiday_df.loc[mask, "date"]
+    deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq="MS")
+    closure_dates = df.index[df.get("closure_flag", 0) == 1]
+    holidays = create_prophet_holidays(
+        holiday_dates,
+        deadline_dates,
+        closure_dates=closure_dates,
+        press_release_dates=[],
     )
 
-    rem --- mark completion
-    > ".venv\.deps_installed" echo done
-)
+    model, forecast, future = train_prophet_model(
+        prophet_df,
+        holidays,
+        regressors,
+        future_periods=30,
+        model_params=model_params,
+        prophet_kwargs=prophet_kwargs,
+        likelihood=cfg["model"].get("likelihood", "normal"),
+        transform=cfg["model"].get("transform", "log"),
+    )
 
-:: ------------------------------------------------------------------
-:: Run forecast pipeline
-set "CONFIG=%~1"
-if "%CONFIG%"=="" set "CONFIG=config.yaml"
-"%_PYTHON%" pipeline.py "%CONFIG%" || exit /b 1
+    cv_params = cfg.get("cross_validation", {})
+    df_cv, horizon_table, summary, diag, _scale = evaluate_prophet_model(
+        model,
+        prophet_df,
+        cv_params=cv_params,
+        forecast=forecast,
+        scaler=None,
+        transform=cfg["model"].get("transform", "log"),
+    )
+    write_summary(summary, out_dir / "summary.csv")
+    write_summary(horizon_table, out_dir / "horizon_metrics.csv")
+    diag.to_csv(out_dir / "ljung_box.csv", index=False)
+    export_prophet_forecast(model, forecast, df, out_dir, scaler=None)
+    export_baseline_forecast(df, out_dir)
 
-endlocal
+    baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(df)
+    cov_b = baseline_metrics.loc[
+        baseline_metrics["metric"] == "Coverage", "value"
+    ].iloc[0]
+    metrics_baseline = baseline_horizon.rename(
+        columns={"horizon_days": "horizon"}
+    ).copy()
+    metrics_baseline["model"] = "baseline"
+    metrics_baseline["coverage"] = cov_b
+
+    coverage = summary.loc[summary["metric"] == "Coverage", "value"].iloc[0]
+    prophet_metrics = horizon_table.rename(columns={"horizon_days": "horizon"}).copy()
+    prophet_metrics["model"] = "prophet"
+    prophet_metrics["coverage"] = coverage
+    metrics = pd.concat(
+        [
+            metrics_baseline[["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]],
+            prophet_metrics[["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]],
+        ],
+        ignore_index=True,
+    )
+    write_summary(metrics, out_dir / "metrics.csv")
+
+    if cfg["model"].get("weekly_incremental") and model_to_json is not None:
+        with open(base_out / "latest_model.json", "w") as f:
+            f.write(model_to_json(model))
+
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+    checksums = {
+        "calls": _checksum(call_path),
+        "visitors": _checksum(visit_path),
+        "queries": _checksum(chat_path),
+    }
+    logger.info("Run %s", run_id)
+    logger.info("commit: %s", commit)
+    logger.info("checksums: %s", json.dumps(checksums))
+    logger.info("params: %s", json.dumps(model_params))
+
+
+def pipeline(config_path: Path) -> None:
+    """Load configuration from ``config_path`` and run the forecast pipeline."""
+    cfg = load_config(config_path)
+    run_forecast(cfg)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    p = argparse.ArgumentParser(description="Run forecast pipeline")
+    p.add_argument("config", type=Path, default=Path("config.yaml"), nargs="?")
+    args = p.parse_args()
+    pipeline(args.config)
