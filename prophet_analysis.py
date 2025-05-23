@@ -2685,6 +2685,9 @@ def evaluate_prophet_model(
     )
 
 
+    if cross_validation_func is None:
+        raise ImportError("prophet package is required for cross validation")
+
     history = model.history.copy()
     reg_info = model.extra_regressors.copy()
     df_cv = None
