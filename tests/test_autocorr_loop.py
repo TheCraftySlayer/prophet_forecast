@@ -20,7 +20,7 @@ def _lb_mid(residuals, lags=14, return_df=True):
 def test_stop_on_mid_range_pvalue():
     model = DummyProphet()
     prophet_df = pd.DataFrame({'ds': pd.date_range('2023-01-01', periods=3), 'y': [1, 2, 3]})
-    with patch('prophet_analysis.cross_validation', side_effect=_stub_cv) as cv_mock, \
+    with patch('prophet_analysis.cross_validation_func', side_effect=_stub_cv) as cv_mock, \
          patch('prophet_analysis.acorr_ljungbox', side_effect=_lb_mid), \
          patch('prophet_analysis._fit_prophet_with_fallback'), \
          patch('prophet_analysis._ensure_tbb_on_path'):
@@ -41,7 +41,7 @@ def test_changepoint_scale_persist_after_refit():
 
     lb_side_effect.calls = 0
 
-    with patch('prophet_analysis.cross_validation', side_effect=_stub_cv) as cv_mock, \
+    with patch('prophet_analysis.cross_validation_func', side_effect=_stub_cv) as cv_mock, \
          patch('prophet_analysis.acorr_ljungbox', side_effect=lb_side_effect), \
          patch('prophet_analysis._fit_prophet_with_fallback'), \
          patch('prophet_analysis._ensure_tbb_on_path'):
