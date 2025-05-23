@@ -18,7 +18,8 @@ Example usage::
 
 # ruff: noqa: E402
 from __future__ import annotations
-from prophet.diagnostics import performance_metrics  # hard import
+from prophet.diagnostics import cross_validation as _cross_validation
+from prophet.diagnostics import performance_metrics as _performance_metrics
 
 import os
 for var in (
@@ -101,15 +102,14 @@ def _get_prophet():
 # Import Prophet
 try:
     from prophet import Prophet
-    from prophet.diagnostics import cross_validation
     from prophet.plot import plot_cross_validation_metric
     from prophet.models import StanBackendCmdStan
-    cross_validation_func = cross_validation
     _HAVE_PROPHET = True
+    cross_validation = None
+    performance_metrics  = _performance_metrics
+    cross_validation_func = _cross_validation 
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
-    cross_validation = None
-    cross_validation_func = None
     plot_cross_validation_metric = None
 
     class _DummyBackend:
@@ -2683,8 +2683,6 @@ def evaluate_prophet_model(
         f"{period} period, {horizon} horizon"
     )
 
-    if cross_validation_func is None:
-        raise ImportError("prophet package is required for cross validation")
 
     history = model.history.copy()
     reg_info = model.extra_regressors.copy()
