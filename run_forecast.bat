@@ -1,73 +1,65 @@
 @echo off
-rem run_forecast.bat – resilient runner
-setlocal ENABLEDELAYEDEXPANSION
+:: run_forecast.bat — deterministic, idempotent
+setlocal enabledelayedexpansion
 
-:: ------------------------------------------------------------------
-:: Default to stub libs unless caller overrides
-if not defined USE_STUB_LIBS set "USE_STUB_LIBS=1"
+:: ---------- move to repo root ----------
+pushd "%~dp0" || exit /b 1
 
-:: ------------------------------------------------------------------
-:: Resolve script directory and switch to it
-set "BASEDIR=%~dp0"
-cd /d "%BASEDIR%"
+:: ---------- verify Python ≥ 3.10 ----------
+for /f "tokens=1,2 delims=." %%a in ('python -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')"') do (
+    set "MAJOR=%%a"
+    set "MINOR=%%b"
+)
+if not "!MAJOR!"=="3" (
+    echo Python 3 required; found !MAJOR!.!MINOR!
+    popd & exit /b 1
+)
+if !MINOR! LSS 10 (
+    echo Python >=3.10 required; found 3.!MINOR!
+    popd & exit /b 1
+)
 
-:: ------------------------------------------------------------------
-:: Choose interpreter: caller-supplied PYTHON → local venv → system
-if defined PYTHON (
-    set "_PYTHON=%PYTHON%"
-) else if exist ".venv\Scripts\python.exe" (
-    set "_PYTHON=.venv\Scripts\python.exe"
+:: ---------- ensure local venv ----------
+if not exist ".venv\Scripts\python.exe" (
+    python -m venv .venv || (echo venv creation failed & popd & exit /b 1)
+)
+
+:: ---------- activate venv ----------
+call ".venv\Scripts\activate.bat"
+
+:: ---------- verify C/C++ toolchain ----------
+where cl >nul 2>&1 || where g++ >nul 2>&1
+if errorlevel 1 (
+    echo No C/C++ compiler detected
+    popd & exit /b 1
+)
+
+:: ---------- dependency stamp ----------
+for %%I in ("requirements.txt") do set "REQ_TS=%%~tI"
+if exist ".venv\.req_ts" (
+    set /p STORED_TS=<".venv\.req_ts"
 ) else (
-    set "_PYTHON=python"
+    set "STORED_TS="
+)
+if not "%REQ_TS%"=="%STORED_TS%" (
+    pip install -r "requirements.txt" || (echo Dependency install failed & popd & exit /b 1)
+    >".venv\.req_ts" echo %REQ_TS%
 )
 
-:: ------------------------------------------------------------------
-:: Create and activate local venv when using bundled interpreter
-if "%_PYTHON%"==".venv\Scripts\python.exe" (
-    if not exist "%_PYTHON%" (
-        where py >nul 2>&1 || (echo Python launcher missing & exit /b 1)
-        py -3.10 -m venv .venv || exit /b 1
-    )
-    call ".venv\Scripts\activate.bat" || exit /b 1
+:: ---------- force-reinstall Prophet + CmdStan ----------
+pip install --force-reinstall prophet==1.1.5 cmdstanpy==1.2.2 || (
+    echo Prophet/CmdStanPy reinstall failed
+    popd & exit /b 1
+)
+python -m cmdstanpy.install_cmdstan --silent || (
+    echo CmdStan installation failed
+    popd & exit /b 1
 )
 
-:: ------------------------------------------------------------------
-:: One-time dependency bootstrap
-if "%_PYTHON%"==".venv\Scripts\python.exe" if not exist ".venv\.deps_installed" (
-
-    rem --- core tooling
-    "%_PYTHON%" -m pip install --upgrade pip setuptools wheel || exit /b 1
-
-    rem --- project requirements
-    "%_PYTHON%" -m pip install -r requirements.txt || exit /b 1
-
-    rem --- pin cmdstanpy; stop NumPy-2 pull
-    "%_PYTHON%" -m pip install --no-deps --upgrade-strategy=only-if-needed cmdstanpy==1.2.5 || exit /b 1
-
-    rem --- verify dependency graph
-    "%_PYTHON%" -m pip check || exit /b 1
-
-    rem --- ensure CmdStan 2.36.0 (only if make exists)
-    where mingw32-make >nul 2>&1 && (
-        set "_TMP=%TEMP%\install_cmdstan_!RANDOM!.py"
-        >"!_TMP!" (
-            echo import cmdstanpy, pathlib
-            echo tgt = pathlib.Path.home^(^) / ".cmdstan" / "cmdstan-2.36.0"
-            echo if not tgt.exists^(^):
-            echo     cmdstanpy.install_cmdstan^(version="2.36.0", overwrite=False^)
-        )
-        "%_PYTHON%" "!_TMP!" || exit /b 1
-        del "!_TMP!"
-    )
-
-    rem --- mark completion
-    > ".venv\.deps_installed" echo done
-)
-
-:: ------------------------------------------------------------------
-:: Run forecast pipeline
+:: ---------- run pipeline ----------
 set "CONFIG=%~1"
 if "%CONFIG%"=="" set "CONFIG=config.yaml"
-"%_PYTHON%" pipeline.py "%CONFIG%" || exit /b 1
+python pipeline.py "%CONFIG%" || (echo Pipeline error & popd & exit /b 1)
 
+popd
 endlocal
