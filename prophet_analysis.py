@@ -118,6 +118,7 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 
     StanBackendCmdStan = _DummyBackend  # type: ignore
 
+    cross_validation_func = None
     _HAVE_PROPHET = False
 
 # Handle seaborn import safely
