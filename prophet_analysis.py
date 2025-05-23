@@ -1364,8 +1364,13 @@ def train_prophet_model(
         future["cap"] = future.get("cap", future["cap_y"]).fillna(future["cap_y"])
         future.drop(columns=["cap_y"], inplace=True)
 
-    missing = set(reg_cols) - set(future.columns)
-    extra = set(future.columns) - set(reg_cols)
+    allowed_cols = set(reg_cols) | {"ds"}
+    for opt in ("cap", "floor"):
+        if opt in future.columns:
+            allowed_cols.add(opt)
+
+    missing = allowed_cols - set(future.columns)
+    extra = set(future.columns) - allowed_cols
     if missing or extra:
         raise ValueError(f"Schema drift – missing {missing} extra {extra}")
     future[reg_cols] = future[reg_cols].astype(float)
