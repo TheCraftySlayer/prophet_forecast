@@ -11,7 +11,7 @@ model:
   n_changepoints: 25
   changepoint_range: 0.9
   regressor_prior_scale: 0.05
-  growth: logistic
+  growth: linear
   transform: log
   mcmc_samples: 0
   interval_width: 0.9
