@@ -99,7 +99,6 @@ try:
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
-    cross_validation = None
     cross_validation_func = None
     performance_metrics = None
     plot_cross_validation_metric = None
