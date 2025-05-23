@@ -1258,6 +1258,16 @@ def train_prophet_model(
                 prior_scale=reg_prior_scale,
                 standardize='auto',
             )
+
+    # ------------------------------------------------------------------
+    # Ensure the training matrix is free of gaps and capture the regressor
+    # column order before fitting. Prophet will coerce NaNs to zero during the
+    # fitting stage, but the later column-equality check uses the DataFrame
+    # directly. Any missing values here would therefore trigger a mismatch even
+    # though Prophet would succeed. Fill holes now so both matrices align.
+    # ------------------------------------------------------------------
+    regressors = [c for c in prophet_df.columns if c not in ("ds", "y")]
+    prophet_df[regressors] = prophet_df[regressors].fillna(0)
     
     # Fit the model
     logger.info("Fitting Prophet model")
