@@ -1344,10 +1344,13 @@ def train_prophet_model(
             inplace=True,
         )
 
-    reg_cols = list(future_regs.columns)
+    # Capture regressor column order excluding capacity-related columns
+    reg_cols = [c for c in future_regs.columns if c not in ("cap", "floor")]
 
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
+    # Filter out any regressors not present in the merged dataframe
+    reg_cols = [c for c in reg_cols if c in future.columns]
     future[reg_cols] = future[reg_cols].fillna(0)
     future = future.sort_values("ds").reset_index(drop=True)
 
