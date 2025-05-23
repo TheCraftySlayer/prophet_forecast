@@ -92,10 +92,10 @@ def _get_prophet():
 # Import Prophet
 try:
     from prophet import Prophet
-    from prophet.diagnostics import cross_validation, performance_metrics
+    from prophet.diagnostics import cross_validation as cv, performance_metrics
     from prophet.plot import plot_cross_validation_metric
     from prophet.models import StanBackendCmdStan
-    cross_validation_func = cross_validation
+    cross_validation_func = cv
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
