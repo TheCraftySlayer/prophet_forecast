@@ -98,18 +98,9 @@ try:
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
-
-    def _missing_prophet(*_args, **_kwargs):
-        raise ImportError("All hyperparameter combinations failed. Check Prophet setup and data integrity explicitly.")
-
-    def cross_validation(*args, **kwargs):
-        return _missing_prophet()
-
-    def performance_metrics(*args, **kwargs):
-        return _missing_prophet()
-
-    def plot_cross_validation_metric(*args, **kwargs):
-        return _missing_prophet()
+    cross_validation = None
+    performance_metrics = None
+    plot_cross_validation_metric = None
 
     class _DummyBackend:
         def __init__(self, *args, **kwargs):
@@ -1183,7 +1174,10 @@ def train_prophet_model(
         except Exception as e:  # pragma: no cover - prophet may be missing
             logger.warning(f"Could not create custom Stan backend: {e}")
 
-    model = P(stan_backend=backend, **default_params) if backend else P(**default_params)
+    if backend:
+        model = P(stan_backend=backend, **default_params)
+    else:
+        model = P(stan_backend="CMDSTANPY", **default_params)
     if not default_params.get("weekly_seasonality", False):
         model.add_seasonality(name="weekly", period=7, fourier_order=5)
 
@@ -1288,7 +1282,8 @@ def train_prophet_model(
     # ------------------------------------------------------------------
     regressors = [c for c in prophet_df.columns if c not in ("ds", "y")]
     prophet_df[regressors] = prophet_df[regressors].ffill().bfill()
-    assert not prophet_df[regressors].isna().any().any()
+    bad = prophet_df[regressors].isna().sum()
+    assert bad.eq(0).all(), f"NaNs in regressors:\n{bad[bad.gt(0)]}"
     # Explicitly ensure core regressors are zero-filled
     intersect = [c for c in REGRESSORS if c in prophet_df.columns]
     prophet_df[intersect] = prophet_df[intersect].fillna(0)
@@ -1353,6 +1348,7 @@ def train_prophet_model(
 
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
+    future[reg_cols] = future[reg_cols].fillna(0)
     future = future.sort_values("ds").reset_index(drop=True)
 
     if removed_regs:
@@ -1366,8 +1362,9 @@ def train_prophet_model(
         future.drop(columns=["cap_y"], inplace=True)
 
     missing = set(reg_cols) - set(future.columns)
-    if missing:
-        raise ValueError(f"Regressors missing in future frame: {missing}")
+    extra = set(future.columns) - set(reg_cols)
+    if missing or extra:
+        raise ValueError(f"Schema drift – missing {missing} extra {extra}")
     future[reg_cols] = future[reg_cols].astype(float)
 
 
