@@ -104,9 +104,12 @@ try:
     from prophet.diagnostics import cross_validation
     from prophet.plot import plot_cross_validation_metric
     from prophet.models import StanBackendCmdStan
+    cross_validation_func = cross_validation
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
+    cross_validation = None
+    cross_validation_func = None
     plot_cross_validation_metric = None
 
     class _DummyBackend:
@@ -489,7 +492,9 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
             _ensure_tbb_on_path()
             _fit_prophet_with_fallback(m, df_copy)
 
-            df_cv = cross_validation(
+            if cross_validation_func is None:
+                raise ImportError("prophet package is required for cross validation")
+            df_cv = cross_validation_func(
                 m,
                 initial='180 days',
                 period='30 days',
@@ -1864,7 +1869,9 @@ def analyze_prophet_components(model, forecast, output_dir):
 
 def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='180 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
-    df_cv = cross_validation(
+    if cross_validation_func is None:
+        raise ImportError("prophet package is required for cross validation")
+    df_cv = cross_validation_func(
         model,
         initial=initial,
         period=f'{periods} days',
@@ -2676,6 +2683,9 @@ def evaluate_prophet_model(
         f"{period} period, {horizon} horizon"
     )
 
+    if cross_validation_func is None:
+        raise ImportError("prophet package is required for cross validation")
+
     history = model.history.copy()
     reg_info = model.extra_regressors.copy()
     df_cv = None
@@ -2685,7 +2695,7 @@ def evaluate_prophet_model(
     current_scale = model.changepoint_prior_scale
     orig_model = model
     while True:
-        df_cv = cross_validation(
+        df_cv = cross_validation_func(
             model,
             initial=initial,
             period=period,
