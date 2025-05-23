@@ -16,9 +16,17 @@ Example usage::
         --handle-outliers winsorize --use-transformation false --skip-feature-importance
 """
 
+# ruff: noqa: E402
 from __future__ import annotations
 
 import os
+for var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[var] = "1"
 import sys
 
 # By default the real third-party packages are imported. Set ``USE_STUB_LIBS=1``
@@ -486,7 +494,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
                 initial='180 days',
                 period='30 days',
                 horizon='14 days',
-                parallel="processes"
+                parallel="threads"
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
             df_p = performance_metrics(df_cv, rolling_window=1)
@@ -1861,7 +1869,7 @@ def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='18
         initial=initial,
         period=f'{periods} days',
         horizon=horizon,
-        parallel="processes",
+        parallel="threads",
     )
     df_p = performance_metrics(df_cv)
     return df_p['rmse'].mean()
@@ -2682,7 +2690,7 @@ def evaluate_prophet_model(
             initial=initial,
             period=period,
             horizon=horizon,
-            parallel="processes",
+            parallel="threads",
         )
         df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
         residuals = df_cv['y'] - df_cv['yhat']
@@ -2971,4 +2979,7 @@ def main(argv=None):
 
     pipeline.run_forecast(cfg)
 if __name__ == "__main__":
+    import multiprocessing as mp
+
+    mp.freeze_support()
     main()

@@ -1,7 +1,16 @@
+# ruff: noqa: E402
+import os
+for var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[var] = "1"
+
 from prophet import Prophet
 print("Explicit Prophet import successful:", Prophet)
 
-import os
 import sys
 from pathlib import Path
 
@@ -225,6 +234,10 @@ def pipeline(config_path: Path) -> None:
 
 
 if __name__ == "__main__":
+    import multiprocessing as mp
+
+    mp.freeze_support()
+
     import argparse
 
     p = argparse.ArgumentParser(description="Run forecast pipeline")
