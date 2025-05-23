@@ -92,13 +92,14 @@ def _get_prophet():
 # Import Prophet
 try:
     from prophet import Prophet
-    from prophet.diagnostics import cross_validation as _cross_validation, performance_metrics
+    from prophet.diagnostics import cross_validation, performance_metrics
     from prophet.plot import plot_cross_validation_metric
     from prophet.models import StanBackendCmdStan
-    cross_validation_func = _cross_validation
+    cross_validation_func = cross_validation
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
+    cross_validation = None
     cross_validation_func = None
     performance_metrics = None
     plot_cross_validation_metric = None
@@ -153,12 +154,9 @@ PROPHET_KWARGS = {
 REGRESSORS = [
     "visit_ma3",
     "chatbot_count",
-    "call_lag1",
     "call_lag7",
     "monday_effect",
     "is_campaign",
-    "post_policy",
-    "press_release_flag",
 ]
 
 
@@ -912,14 +910,11 @@ def prepare_data(
     important_regs = [
         "visit_ma3",
         "chatbot_count",
-        "call_lag1",
         "call_lag7",
         "monday_effect",
         "deadline_flag",
         "notice_flag",
         "is_campaign",
-        "post_policy",
-        "press_release_flag",
     ]
     regressors = regressors[important_regs]
 
@@ -1223,14 +1218,11 @@ def train_prophet_model(
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'call_lag1',
         'call_lag7',
         'monday_effect',
         'notice_flag',
         'deadline_flag',
         'is_campaign',
-        'post_policy',
-        'press_release_flag',
     ]
 
     important_regressors = [r for r in important_regressors if r not in dropped_cols]
@@ -1253,11 +1245,14 @@ def train_prophet_model(
                 logger.info('Dropping non-significant regressor: %s', reg)
                 existing_regs.remove(reg)
                 removed_regs.add(reg)
-        important_regressors = [
-            r for r in significant_regs if r in existing_regs
-        ]
+        important_regressors = [r for r in significant_regs if r in existing_regs]
     else:
         important_regressors = []
+
+    # Align final regressors with the global REGRESSORS list
+    final_regs = [r for r in important_regressors if r in REGRESSORS]
+    removed_regs.update(set(important_regressors) - set(final_regs))
+    important_regressors = final_regs
 
     if removed_regs:
         regressors_df = regressors_df.drop(
@@ -1318,14 +1313,11 @@ def train_prophet_model(
     # Required regressors only
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
-    future_regs['call_lag1'] = 0
     future_regs['call_lag7'] = 0
     future_regs['monday_effect'] = 0
     future_regs['notice_flag'] = 0
     future_regs['deadline_flag'] = 0
     future_regs['is_campaign'] = 0
-    future_regs['post_policy'] = 0
-    future_regs['press_release_flag'] = 0
     if capacity is not None:
         future_regs['cap'] = capacity
 
@@ -1381,14 +1373,11 @@ def train_prophet_model(
     check_cols = [
         'visit_ma3',
         'chatbot_count',
-        'call_lag1',
         'call_lag7',
         'monday_effect',
         'notice_flag',
         'deadline_flag',
         'is_campaign',
-        'post_policy',
-        'press_release_flag',
     ]
     for col in check_cols:
         if col in future.columns and future[col].isna().any():
@@ -1551,7 +1540,6 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
-        'call_lag1',
         'call_lag7',
         'monday_effect',
         'notice_flag',
