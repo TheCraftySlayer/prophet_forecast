@@ -2693,52 +2693,67 @@ def evaluate_prophet_model(
     attempts = 0
     current_scale = model.changepoint_prior_scale
     orig_model = model
-    while True:
-        df_cv = cross_validation_func(
-            model,
-            initial=initial,
-            period=period,
-            horizon=horizon,
-            parallel="threads",
-        )
-        df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
-        residuals = df_cv['y'] - df_cv['yhat']
-        lb = acorr_ljungbox(residuals, lags=14, return_df=True)
-        if lb_first is None:
-            lb_first = lb.copy()
-            lb_p = lb['lb_pvalue'].min()
-            if 0.2 <= lb_p <= 0.8:
+
+    if cross_validation_func is not None:
+        while True:
+            df_cv = cross_validation_func(
+                model,
+                initial=initial,
+                period=period,
+                horizon=horizon,
+                parallel="threads",
+            )
+            df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
+            residuals = df_cv['y'] - df_cv['yhat']
+            lb = acorr_ljungbox(residuals, lags=14, return_df=True)
+            if lb_first is None:
+                lb_first = lb.copy()
+                lb_p = lb['lb_pvalue'].min()
+                if 0.2 <= lb_p <= 0.8:
+                    break
+            else:
+                lb_p = lb['lb_pvalue'].min()
+            if lb_p > 0.05 or attempts >= 1:
                 break
-        else:
-            lb_p = lb['lb_pvalue'].min()
-        if lb_p > 0.05 or attempts >= 1:
-            break
-        attempts += 1
-        current_scale *= 0.5
-        logger.info(
-            "Autocorrelation detected, refitting with changepoint_prior_scale=%s",
-            current_scale,
+            attempts += 1
+            current_scale *= 0.5
+            logger.info(
+                "Autocorrelation detected, refitting with changepoint_prior_scale=%s",
+                current_scale,
+            )
+            P = _get_prophet()
+            if P is None:
+                raise ImportError("prophet package is required for forecasting features")
+            model = P(
+                growth=model.growth,
+                interval_width=model.interval_width,
+                seasonality_mode=model.seasonality_mode,
+                changepoint_prior_scale=current_scale,
+                n_changepoints=model.n_changepoints,
+                holidays=model.holidays,
+                **PROPHET_KWARGS,
+            )
+            for name, info in reg_info.items():
+                allowed = {
+                    k: v for k, v in info.items() if k in {"prior_scale", "mode", "standardize"}
+                }
+                model.add_regressor(name, **allowed)
+            _ensure_tbb_on_path()
+            _fit_prophet_with_fallback(model, history)
+        orig_model.changepoint_prior_scale = current_scale
+    else:
+        logger.warning(
+            "Prophet cross validation unavailable; evaluating on training data"
         )
-        P = _get_prophet()
-        if P is None:
-            raise ImportError("prophet package is required for forecasting features")
-        model = P(
-            growth=model.growth,
-            interval_width=model.interval_width,
-            seasonality_mode=model.seasonality_mode,
-            changepoint_prior_scale=current_scale,
-            n_changepoints=model.n_changepoints,
-            holidays=model.holidays,
-            **PROPHET_KWARGS,
-        )
-        for name, info in reg_info.items():
-            allowed = {
-                k: v for k, v in info.items() if k in {"prior_scale", "mode", "standardize"}
-            }
-            model.add_regressor(name, **allowed)
-        _ensure_tbb_on_path()
-        _fit_prophet_with_fallback(model, history)
-    orig_model.changepoint_prior_scale = current_scale
+        if forecast is None:
+            future_in = model.history.drop(columns=["y"], errors="ignore")
+            forecast = model.predict(future_in)
+        df_cv = forecast.merge(prophet_df[["ds", "y"]], on="ds", how="left")
+        df_cv["cutoff"] = df_cv["ds"]
+        df_cv["horizon"] = pd.Timedelta(0, unit="D")
+        residuals = df_cv["y"] - df_cv["yhat"]
+        lb_first = acorr_ljungbox(residuals, lags=14, return_df=True)
+        lb_p = lb_first["lb_pvalue"].min()
 
     if transform is None and log_transform:
         transform = "log"
