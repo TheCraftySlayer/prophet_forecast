@@ -1,4 +1,14 @@
+# ruff: noqa: E402
 from datetime import date
+
+import os
+for var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[var] = "1"
 
 import pandas as pd
 
@@ -113,5 +123,9 @@ def get_holidays_dataframe() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
+    import multiprocessing as mp
+
+    mp.freeze_support()
+
     df = get_holidays_dataframe()
     print(df.head())

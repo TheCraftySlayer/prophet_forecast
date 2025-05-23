@@ -8,6 +8,16 @@ holidays, notice-of-value mail-outs and other campaign periods. The result is
 written to a CSV file that can be used for modeling or further analysis.
 """
 
+# ruff: noqa: E402
+import os
+for var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[var] = "1"
+
 import argparse
 from pathlib import Path
 
@@ -22,6 +32,10 @@ def main(calls: Path, visitors: Path, queries: Path, out_path: Path) -> None:
 
 
 if __name__ == "__main__":
+    import multiprocessing as mp
+
+    mp.freeze_support()
+
     parser = argparse.ArgumentParser(
         description="Generate engineered feature CSV for forecasting"
     )
