@@ -34,6 +34,7 @@ if not exist ".venv\Scripts\python.exe" (
     "%PYTHON%" -m venv ".venv" || exit /b 3
 )
 call ".venv\Scripts\activate.bat" || exit /b 4
+set "PYTHON="
 
 REM ---------- tooling ----------
 python -m pip install --upgrade pip || exit /b 5

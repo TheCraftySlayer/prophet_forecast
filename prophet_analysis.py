@@ -1287,7 +1287,8 @@ def train_prophet_model(
     # though Prophet would succeed. Fill holes now so both matrices align.
     # ------------------------------------------------------------------
     regressors = [c for c in prophet_df.columns if c not in ("ds", "y")]
-    prophet_df[regressors] = prophet_df[regressors].fillna(0)
+    prophet_df[regressors] = prophet_df[regressors].ffill().bfill()
+    assert not prophet_df[regressors].isna().any().any()
     # Explicitly ensure core regressors are zero-filled
     intersect = [c for c in REGRESSORS if c in prophet_df.columns]
     prophet_df[intersect] = prophet_df[intersect].fillna(0)
@@ -1333,8 +1334,7 @@ def train_prophet_model(
         future_regs['cap'] = capacity
 
     # Ensure float dtypes before merging to avoid warnings
-    reg_cols = list(future_regs.columns)
-    future_regs[reg_cols] = future_regs[reg_cols].astype("float64")
+    future_regs = future_regs.astype("float64")
 
     # Overlay known regressor values from historical data
     known = full_regs.reindex(future_regs.index)
@@ -1349,6 +1349,8 @@ def train_prophet_model(
             inplace=True,
         )
 
+    reg_cols = list(future_regs.columns)
+
     # Merge regressor values back into the future dataframe on the date column
     future = future.merge(future_regs, left_on="ds", right_index=True, how="left")
     future = future.sort_values("ds").reset_index(drop=True)
@@ -1362,6 +1364,11 @@ def train_prophet_model(
     if "cap_y" in future.columns:
         future["cap"] = future.get("cap", future["cap_y"]).fillna(future["cap_y"])
         future.drop(columns=["cap_y"], inplace=True)
+
+    missing = set(reg_cols) - set(future.columns)
+    if missing:
+        raise ValueError(f"Regressors missing in future frame: {missing}")
+    future[reg_cols] = future[reg_cols].astype(float)
 
 
     # Basic sanity check for merged regressors
