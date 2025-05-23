@@ -155,6 +155,20 @@ PROPHET_KWARGS = {
     "daily_seasonality": False,
 }
 
+# Core regressor columns used throughout the model. These are expected to
+# appear in both the training and future design matrices. Any missing values
+# are filled with zeros prior to fitting to avoid issues inside Prophet.
+REGRESSORS = [
+    "visit_ma3",
+    "chatbot_count",
+    "call_lag1",
+    "call_lag7",
+    "monday_effect",
+    "is_campaign",
+    "post_policy",
+    "press_release_flag",
+]
+
 
 def build_prophet_kwargs(model_cfg: dict) -> dict:
     """Return Prophet keyword arguments merged with defaults."""
@@ -380,7 +394,9 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
     _ensure_tbb_on_path()
 
     if not _HAVE_PROPHET:
-        logger.warning("Prophet package not installed; cannot compile custom Stan model")
+        logger.warning(
+            "Custom Stan model compile disabled: prophet not available"
+        )
         return None
 
     try:
@@ -1090,6 +1106,10 @@ def train_prophet_model(
     logger = logging.getLogger(__name__)
     logger.info("Training Prophet model")
 
+    assert prophet_df['ds'].is_monotonic_increasing
+    assert prophet_df['y'].notna().all()
+    assert len(prophet_df) >= 30, "insufficient history"
+
     P = _get_prophet()
     if P is None:
         raise ImportError("prophet package is required for forecasting features")
@@ -1268,6 +1288,9 @@ def train_prophet_model(
     # ------------------------------------------------------------------
     regressors = [c for c in prophet_df.columns if c not in ("ds", "y")]
     prophet_df[regressors] = prophet_df[regressors].fillna(0)
+    # Explicitly ensure core regressors are zero-filled
+    intersect = [c for c in REGRESSORS if c in prophet_df.columns]
+    prophet_df[intersect] = prophet_df[intersect].fillna(0)
     
     # Fit the model
     logger.info("Fitting Prophet model")
@@ -1361,6 +1384,10 @@ def train_prophet_model(
             )
             future[col] = future[col].fillna(0)
 
+    # Explicitly ensure core regressors contain no NaNs
+    intersect = [c for c in REGRESSORS if c in future.columns]
+    future[intersect] = future[intersect].fillna(0)
+
     train_cols = set(prophet_df.columns) - {"y", "ds"}
     future_cols = set(future.columns) - {"ds"}
     if train_cols != future_cols:
@@ -1377,9 +1404,18 @@ def train_prophet_model(
     ordered = ['ds'] + sorted(train_cols)
     future = future.reindex(columns=ordered, fill_value=0)
 
+    # Synchronise final regressor matrices
+    missing_in_future = prophet_df.columns.difference(future.columns)
+    for col in missing_in_future:
+        if col != 'y':
+            future[col] = 0
+    extra = future.columns.difference(prophet_df.columns)
+    if extra.any():
+        future.drop(columns=list(extra), inplace=True)
+    future = future[[c for c in prophet_df.columns if c != 'y']]
+
     # Verify regressor matrices before forecasting
     assert prophet_df.isna().sum().sum() == 0
-    assert list(prophet_df.columns) == list(future.columns)
 
     # Make forecast
     logger.info("Making forecast")
