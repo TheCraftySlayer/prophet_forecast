@@ -92,14 +92,12 @@ def _get_prophet():
 # Import Prophet
 try:
     from prophet import Prophet
-    from prophet.diagnostics import cross_validation as cv, performance_metrics
+    from prophet.diagnostics import cross_validation, performance_metrics
     from prophet.plot import plot_cross_validation_metric
     from prophet.models import StanBackendCmdStan
-    cross_validation_func = cv
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
-    cross_validation_func = None
     performance_metrics = None
     plot_cross_validation_metric = None
 
@@ -483,7 +481,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
             _ensure_tbb_on_path()
             _fit_prophet_with_fallback(m, df_copy)
 
-            df_cv = cross_validation_func(
+            df_cv = cross_validation(
                 m,
                 initial='180 days',
                 period='30 days',
@@ -1858,7 +1856,7 @@ def analyze_prophet_components(model, forecast, output_dir):
 
 def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='180 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
-    df_cv = cross_validation_func(
+    df_cv = cross_validation(
         model,
         initial=initial,
         period=f'{periods} days',
@@ -2679,7 +2677,7 @@ def evaluate_prophet_model(
     current_scale = model.changepoint_prior_scale
     orig_model = model
     while True:
-        df_cv = cross_validation_func(
+        df_cv = cross_validation(
             model,
             initial=initial,
             period=period,
