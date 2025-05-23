@@ -100,13 +100,13 @@ def _get_prophet():
 # Import Prophet
 try:
     from prophet import Prophet
-    from prophet.diagnostics import cross_validation, performance_metrics as _perf
+    from prophet.diagnostics import cross_validation, performance_metrics
     from prophet.plot import plot_cross_validation_metric
     from prophet.models import StanBackendCmdStan
     _HAVE_PROPHET = True
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
-    _perf = None
+    performance_metrics = None
     plot_cross_validation_metric = None
 
     class _DummyBackend:
@@ -497,7 +497,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
                 parallel="threads"
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
-            metrics_df = _perf(df_cv, rolling_window=1)
+            metrics_df = performance_metrics(df_cv, rolling_window=1)
             if 'mean_poisson_deviance' in metrics_df.columns:
                 devs.append(metrics_df['mean_poisson_deviance'].mean())
             else:
@@ -1871,7 +1871,7 @@ def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='18
         horizon=horizon,
         parallel="threads",
     )
-    metrics_df = _perf(df_cv)
+    metrics_df = performance_metrics(df_cv)
     return metrics_df['rmse'].mean()
 
 def analyze_feature_importance(model, prophet_df, quick_mode=True):
@@ -2765,7 +2765,7 @@ def evaluate_prophet_model(
     if 'horizon' not in df_cv.columns and {'ds', 'cutoff'} <= set(df_cv.columns):
         df_cv['horizon'] = df_cv['ds'] - df_cv['cutoff']
 
-    metrics_df = _perf(df_cv, rolling_window=1)
+    metrics_df = performance_metrics(df_cv, rolling_window=1)
 
     mae  = metrics_df['mae' ].mean() if 'mae'  in metrics_df else float('nan')
     rmse = metrics_df['rmse'].mean() if 'rmse' in metrics_df else float('nan')
