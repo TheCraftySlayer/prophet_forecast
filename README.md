@@ -4,7 +4,7 @@ This project forecasts customer service call volume using [Prophet](https://gith
 
 ## Disclaimer
 
-This repository contains only synthetic demonstration data. It ships with stub versions of `pandas`, a minimal `numpy_stub` module and a few other third‑party libraries for unit testing only. Install the real packages when running the forecast for actual analysis. The authors provide this project as-is without any warranty of accuracy or fitness for a particular purpose.
+This repository includes real historical CSVs for call volume, chatbot queries and visitor counts. It still ships with stub versions of `pandas`, a minimal `numpy_stub` module and a few other third‑party libraries for unit testing only. Install the real packages when running the forecast for actual analysis. The authors provide this project as-is without any warranty of accuracy or fitness for a particular purpose.
 
 ## Requirements
 
