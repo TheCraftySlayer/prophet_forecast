@@ -18,8 +18,6 @@ Example usage::
 
 # ruff: noqa: E402
 from __future__ import annotations
-from prophet.diagnostics import cross_validation as _cross_validation
-from prophet.diagnostics import performance_metrics as _performance_metrics
 
 import os
 for var in (
@@ -42,6 +40,9 @@ if not _USE_STUB_LIBS:
         for p in sys.path
         if os.path.abspath(p or os.getcwd()) != _THIS_DIR
     ]
+
+from prophet.diagnostics import cross_validation as _cross_validation
+from prophet.diagnostics import performance_metrics as _performance_metrics
 import matplotlib
 
 if not hasattr(matplotlib, "use"):
