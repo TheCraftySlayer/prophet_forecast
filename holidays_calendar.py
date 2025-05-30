@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 from datetime import date
+from pathlib import Path
 
 import os
 for var in (
@@ -14,7 +15,11 @@ import pandas as pd
 
 
 def get_holidays_dataframe() -> pd.DataFrame:
-    """Return DataFrame with county holidays, tax deadlines and press release dates."""
+    """Return DataFrame with county holidays, tax deadlines and press release dates.
+
+    Additional assessor-related events are loaded from ``assessor_events.csv`` if
+    present in the same directory and appended to the calendar.
+    """
     county_holidays = [
         date(2023, 1, 2),
         date(2023, 1, 16),
@@ -117,6 +122,16 @@ def get_holidays_dataframe() -> pd.DataFrame:
         records.append({"date": pd.to_datetime(d), "event": "press_release"})
     for d in notice_mailout_dates:
         records.append({"date": pd.to_datetime(d), "event": "notice_mailout"})
+
+    events_path = Path(__file__).with_name("assessor_events.csv")
+    if events_path.exists():
+        df_events = pd.read_csv(events_path)
+        for row in df_events.itertuples(index=False):
+            start = pd.to_datetime(row.start_date)
+            end = pd.to_datetime(row.end_date) if isinstance(row.end_date, str) and row.end_date else start
+            dates = pd.date_range(start, end)
+            for d in dates:
+                records.append({"date": d, "event": row.feature})
 
     df = pd.DataFrame(records).sort_values("date").reset_index(drop=True)
     return df

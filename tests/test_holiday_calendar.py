@@ -11,3 +11,7 @@ def test_holiday_calendar_contents():
     assert not df.empty
     # Check that types are datetime
     assert pd.api.types.is_datetime64_any_dtype(df['date'])
+
+def test_assessor_events_included():
+    df = get_holidays_dataframe()
+    assert 'bill_mailed' in df['event'].values
