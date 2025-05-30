@@ -69,7 +69,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import statsmodels
-import pipeline
 from sklearn.feature_selection import mutual_info_regression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
@@ -2998,6 +2997,7 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    import pipeline
     cfg = pipeline.load_config(Path("config.yaml"))
     cfg["data"]["calls"] = str(args.call_data)
     cfg["data"]["visitors"] = str(args.visitor_data)

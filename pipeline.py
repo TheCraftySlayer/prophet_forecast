@@ -12,6 +12,10 @@ from prophet import Prophet
 print("Explicit Prophet import successful:", Prophet)
 
 import sys
+if __name__ == "__main__":
+    # Expose this module as ``pipeline`` when executed as a script so that
+    # helper modules can import it without errors.
+    sys.modules.setdefault("pipeline", sys.modules[__name__])
 from pathlib import Path
 
 # By default the real third-party packages are used. Set ``USE_STUB_LIBS=1``
