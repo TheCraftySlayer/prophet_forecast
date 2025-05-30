@@ -1870,8 +1870,6 @@ def analyze_prophet_components(model, forecast, output_dir):
 
 def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='180 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
-    if cross_validation_func is None:
-        raise ImportError("prophet package is required for cross validation")
     df_cv = cross_validation_func(
         model,
         initial=initial,
@@ -2685,8 +2683,6 @@ def evaluate_prophet_model(
     )
 
 
-    if cross_validation_func is None:
-        raise ImportError("prophet package is required for cross validation")
 
     history = model.history.copy()
     reg_info = model.extra_regressors.copy()
