@@ -180,3 +180,24 @@ default Tkinter-backed Matplotlib GUI conflicts with this and can raise
 ``Operation not permitted`` errors from CmdStan. The analysis script now
 forces a headless Matplotlib backend and runs cross‑validation using
 threads to avoid the issue.
+
+## Running the tests
+
+A comprehensive suite of unit tests exercises the data pipeline and model components. After installing the required dependencies you can execute the tests with:
+
+```bash
+pytest
+```
+
+The tests run against the real third-party packages by default. Set `USE_STUB_LIBS=1` to use the lightweight stub modules shipped in this repository instead.
+
+### Makefile helpers
+
+The repository includes a small `Makefile` exposing common tasks:
+
+```bash
+make features  # preprocess the raw data
+make model     # train the Prophet model
+make metrics   # echo where metrics are exported
+```
+
