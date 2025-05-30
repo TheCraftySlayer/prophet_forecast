@@ -8,9 +8,6 @@ for var in (
 ):
     os.environ[var] = "1"
 
-from prophet import Prophet
-print("Explicit Prophet import successful:", Prophet)
-
 import sys
 if __name__ == "__main__":
     # Expose this module as ``pipeline`` when executed as a script so that
@@ -29,6 +26,9 @@ if not _USE_STUB_LIBS:
     # installed packages.
     sys.path = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _THIS_DIR]
     sys.path.append(_THIS_DIR)
+
+from prophet import Prophet
+print("Explicit Prophet import successful:", Prophet)
 try:
     from ruamel.yaml import YAML  # type: ignore
 except ModuleNotFoundError:
