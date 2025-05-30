@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("pandas")
+
 import pandas as pd
 from holidays_calendar import get_holidays_dataframe
 
