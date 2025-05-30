@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("pandas")
+
 import sqlite3
 from pathlib import Path
 

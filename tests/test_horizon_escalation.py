@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("pandas")
+
 import logging
 import pandas as pd
 from prophet_analysis import _check_horizon_escalation

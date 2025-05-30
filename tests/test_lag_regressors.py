@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("pandas")
+
 from pathlib import Path
 
 from prophet_analysis import prepare_data

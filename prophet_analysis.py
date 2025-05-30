@@ -51,7 +51,6 @@ if not hasattr(matplotlib, "use"):
     )
 matplotlib.use("Agg")  # ensure headless backend for multiprocessing safety
 import argparse
-import glob
 import itertools
 import logging
 import pickle
@@ -70,6 +69,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import statsmodels
+import pipeline
 from sklearn.feature_selection import mutual_info_regression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
@@ -2358,7 +2358,7 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
     metrics = pd.DataFrame(
         {
-            "metric": ["MAE", "RMSE", "Poisson" , "Coverage"],
+            "metric": ["MAE", "RMSE", "Poisson", "Coverage"],
             "value": [mae, rmse, pdev, coverage],
         }
     )

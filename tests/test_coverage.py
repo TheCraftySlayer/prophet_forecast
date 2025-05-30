@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("pandas")
+
 import pandas as pd
 from prophet_analysis import compute_naive_baseline
 
