@@ -104,7 +104,9 @@ python data_pipeline.py calls.csv visitors.csv queries.csv --out features.csv
 ```
 
 This merges the raw files on a business-day index and adds dummy flags for
-holidays, notice mail-outs and the May 2025 campaign period.
+holidays, notice mail-outs and the May 2025 campaign period. An accompanying
+`assessor_events.csv` lists additional policy and outage dates that can be
+used for further feature engineering.
 
 ### Data exclusions
 
