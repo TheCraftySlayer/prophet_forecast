@@ -107,7 +107,7 @@ try:
     _HAVE_PROPHET = True
     cross_validation = None
     performance_metrics  = _performance_metrics
-    cross_validation_func = _cross_validation 
+    cross_validation_func = _cross_validation
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
     plot_cross_validation_metric = None
@@ -117,6 +117,9 @@ except Exception:  # pragma: no cover - optional dependency may be missing
             raise ImportError("prophet package is required for forecasting features")
 
     StanBackendCmdStan = _DummyBackend  # type: ignore
+
+    def performance_metrics(*args, **kwargs):
+        raise ImportError("prophet package is required for cross validation")
 
     cross_validation_func = None
     _HAVE_PROPHET = False
