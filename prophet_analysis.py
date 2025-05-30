@@ -42,7 +42,6 @@ if not _USE_STUB_LIBS:
     ]
 
 from prophet.diagnostics import cross_validation as _cross_validation
-from prophet.diagnostics import performance_metrics as _performance_metrics
 import matplotlib
 
 if not hasattr(matplotlib, "use"):
@@ -106,7 +105,6 @@ try:
     from prophet.models import StanBackendCmdStan
     _HAVE_PROPHET = True
     cross_validation = None
-    performance_metrics  = _performance_metrics
     cross_validation_func = _cross_validation
 except Exception:  # pragma: no cover - optional dependency may be missing
     Prophet = None
@@ -117,12 +115,16 @@ except Exception:  # pragma: no cover - optional dependency may be missing
             raise ImportError("prophet package is required for forecasting features")
 
     StanBackendCmdStan = _DummyBackend  # type: ignore
-
-    def performance_metrics(*args, **kwargs):
-        raise ImportError("prophet package is required for cross validation")
-
     cross_validation_func = None
     _HAVE_PROPHET = False
+
+def performance_metrics(*args, **kwargs):
+    """Wrapper around ``prophet.diagnostics.performance_metrics`` with lazy import."""
+    try:
+        from prophet.diagnostics import performance_metrics as _internal_metrics
+    except ImportError:
+        raise ImportError("prophet package is required for cross validation")
+    return _internal_metrics(*args, **kwargs)
 
 # Handle seaborn import safely
 try:
