@@ -54,9 +54,7 @@ import argparse
 import itertools
 import logging
 import pickle
-import random
 import math
-import re
 import sqlite3
 import tempfile
 import shutil
@@ -69,8 +67,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import statsmodels
-from sklearn.feature_selection import mutual_info_regression
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.feature_selection import mutual_info_regression  # noqa: F401
+from sklearn.metrics import mean_squared_error
 
 # Check pandas/statsmodels compatibility before importing heavy submodules
 _PD_MAJOR = int(pd.__version__.split(".")[0])
@@ -81,8 +79,6 @@ if _PD_MAJOR >= 2 and _SM_VERSION < (0, 14, 2):
     )
 
 from statsmodels.stats.diagnostic import acorr_ljungbox
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-from statsmodels.tsa.arima.model import ARIMA
 
 
 def _get_prophet():
@@ -141,7 +137,7 @@ except ImportError:
 
 # Optional openpyxl dependency
 try:
-    import openpyxl  # type: ignore
+    import openpyxl  # type: ignore  # noqa: F401
     _HAVE_OPENPYXL = True
 except Exception:
     _HAVE_OPENPYXL = False
@@ -259,15 +255,15 @@ def box_cox_transform(series: pd.Series, lmbda: float | None = None) -> tuple[pd
         log_arr = np.log(arr)
         n = arr.size
 
-        def llf(l: float) -> float:
-            if l == 0:
+        def llf(lam: float) -> float:
+            if lam == 0:
                 transformed = log_arr
             else:
-                transformed = (arr ** l - 1) / l
+                transformed = (arr ** lam - 1) / lam
             var = transformed.var(ddof=1)
-            return -n / 2 * np.log(var) + (l - 1) * log_arr.sum()
+            return -n / 2 * np.log(var) + (lam - 1) * log_arr.sum()
 
-        scores = [llf(l) for l in grid]
+        scores = [llf(lam) for lam in grid]
         lmbda = float(grid[int(np.argmax(scores))])
 
     if lmbda == 0:
@@ -1320,10 +1316,6 @@ def train_prophet_model(
     full_regs[flag_cols] = full_regs[flag_cols].fillna(0)
     full_regs = full_regs.ffill().fillna(0)
 
-    # Determine official holiday dates for future regressor flags
-    holiday_dates = pd.to_datetime(
-        holidays_df[holidays_df['holiday'] == 'holiday']['ds']
-    )
 
     # Build full daily calendar covering the forecast horizon
     full_dates = pd.date_range(future['ds'].min(), future['ds'].max(), freq='B')
@@ -1878,6 +1870,8 @@ def analyze_prophet_components(model, forecast, output_dir):
 
 def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='180 days'):
     """Simple cross-validation for a Prophet model using a rolling origin."""
+    if cross_validation_func is None:
+        raise ImportError("prophet package is required for cross validation")
     df_cv = cross_validation_func(
         model,
         initial=initial,
@@ -2705,18 +2699,7 @@ def evaluate_prophet_model(
     orig_model = model
 
     if cross_validation_func is None:
-        logger.warning(
-            "Prophet cross validation unavailable; evaluating on training data"
-        )
-        if forecast is None:
-            future_in = model.history.drop(columns=["y"], errors="ignore")
-            forecast = model.predict(future_in)
-        df_cv = forecast.merge(prophet_df[["ds", "y"]], on="ds", how="left")
-        df_cv["cutoff"] = df_cv["ds"]
-        df_cv["horizon"] = pd.Timedelta(0, unit="D")
-        residuals = df_cv["y"] - df_cv["yhat"]
-        lb = acorr_ljungbox(residuals, lags=14, return_df=True)
-        lb_first = lb.copy()
+        raise ImportError("prophet package is required for cross validation")
     else:
         while True:
             df_cv = cross_validation_func(
