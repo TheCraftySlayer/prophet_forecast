@@ -2306,6 +2306,9 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
+    mape = (
+        (result["abs_error"] / result["actual"].replace(0, np.nan)).mean() * 100
+    )
     pdev = _mean_poisson_deviance(result["actual"], result["predicted"])
 
     resid_std = result["error"].std(ddof=0)
@@ -2319,8 +2322,8 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
     metrics = pd.DataFrame(
         {
-            "metric": ["MAE", "RMSE", "Poisson", "Coverage"],
-            "value": [mae, rmse, pdev, coverage],
+            "metric": ["MAE", "RMSE", "MAPE", "Poisson", "Coverage"],
+            "value": [mae, rmse, mape, pdev, coverage],
         }
     )
 
@@ -2330,10 +2333,13 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             sub = result.head(h)
             mae_h = sub["abs_error"].mean()
             rmse_h = np.sqrt((sub["error"] ** 2).mean())
+            mape_h = (
+                (sub["abs_error"] / sub["actual"].replace(0, np.nan)).mean() * 100
+            )
             pdev_h = _mean_poisson_deviance(sub["actual"], sub["predicted"])
-            horizon_rows.append([h, mae_h, rmse_h, pdev_h])
+            horizon_rows.append([h, mae_h, rmse_h, mape_h, pdev_h])
     horizon_df = pd.DataFrame(
-        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "Poisson"]
+        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE", "Poisson"]
     )
 
 
@@ -2748,6 +2754,11 @@ def evaluate_prophet_model(
 
     mae  = metrics_df['mae' ].mean() if metrics_df is not None and 'mae'  in metrics_df else float('nan')
     rmse = metrics_df['rmse'].mean() if metrics_df is not None and 'rmse' in metrics_df else float('nan')
+    mape = (
+        metrics_df['mape'].mean()
+        if metrics_df is not None and 'mape' in metrics_df
+        else (np.abs(df_cv['y'] - df_cv['yhat']) / df_cv['y'].replace(0, np.nan)).mean() * 100
+    )
     pdev = _mean_poisson_deviance(df_cv['y'], df_cv['yhat'])
 
     coverage = (
@@ -2767,7 +2778,7 @@ def evaluate_prophet_model(
 
     logger.info(
         f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
-        f"Poisson {pdev:.2f} | "
+        f"MAPE {mape:.2f} | Poisson {pdev:.2f} | "
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
     )
 
@@ -2813,8 +2824,8 @@ def evaluate_prophet_model(
             break
 
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "Poisson", "Coverage"],
-        "value":  [mae,  rmse,  pdev, coverage]
+        "metric": ["MAE", "RMSE", "MAPE", "Poisson", "Coverage"],
+        "value":  [mae,  rmse,  mape,  pdev, coverage]
     })
 
     horizon_rows = []
@@ -2825,10 +2836,13 @@ def evaluate_prophet_model(
             continue
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
+        mape_h = (
+            (np.abs(sub['y'] - sub['yhat']) / sub['y'].replace(0, np.nan)).mean() * 100
+        )
         pdev_h = _mean_poisson_deviance(sub['y'], sub['yhat'])
-        horizon_rows.append([h, mae_h, rmse_h, pdev_h])
+        horizon_rows.append([h, mae_h, rmse_h, mape_h, pdev_h])
     horizon_table = pd.DataFrame(
-        horizon_rows, columns=['horizon_days','MAE','RMSE','Poisson']
+        horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE','Poisson']
     )
 
     _check_horizon_escalation(horizon_table)
