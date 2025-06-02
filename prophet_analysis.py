@@ -95,7 +95,7 @@ def _get_prophet():
 
 
 # Import Prophet
-from prophet.models import StanBackendCmdStan
+from prophet.models import StanBackendCmdStanPy
 
 _HAVE_PROPHET = True
 cross_validation_func = cross_validation
@@ -1159,7 +1159,7 @@ def train_prophet_model(
         try:
             with open(custom_model_path, "rb") as f:
                 compiled_model = pickle.load(f)
-            backend = StanBackendCmdStan(model=compiled_model)
+            backend = StanBackendCmdStanPy(model=compiled_model)
         except Exception as e:  # pragma: no cover - prophet may be missing
             logger.warning(f"Could not create custom Stan backend: {e}")
 
