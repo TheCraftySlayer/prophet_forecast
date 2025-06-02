@@ -95,23 +95,10 @@ def _get_prophet():
 
 
 # Import Prophet
-try:
-    from prophet import Prophet
-    from prophet.plot import plot_cross_validation_metric
-    from prophet.models import StanBackendCmdStan
-    _HAVE_PROPHET = True
-    cross_validation_func = cross_validation
-except Exception:  # pragma: no cover - optional dependency may be missing
-    Prophet = None
-    plot_cross_validation_metric = None
+from prophet.models import StanBackendCmdStan
 
-    class _DummyBackend:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("prophet package is required for forecasting features")
-
-    StanBackendCmdStan = _DummyBackend  # type: ignore
-    cross_validation_func = None
-    _HAVE_PROPHET = False
+_HAVE_PROPHET = True
+cross_validation_func = cross_validation
 
 # Handle seaborn import safely
 try:
