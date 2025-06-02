@@ -2537,7 +2537,7 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
             prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
 
             # Naive baseline forecast and metrics
-            naive_df, naive_metrics = compute_naive_baseline(df)
+            naive_df, naive_metrics, _naive_horizon = compute_naive_baseline(df)
             naive_df.to_excel(writer, sheet_name='Naive 14-Day Forecast', index=False)
             naive_metrics.to_excel(writer, sheet_name='Naive Metrics', index=False)
 
