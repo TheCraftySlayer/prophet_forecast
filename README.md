@@ -126,7 +126,7 @@ target series (controlled by `model.transform` in `config.yaml`). By default a
 scale.
 
 The results, including forecasts and plots, will be saved in the specified output directory.
-The exported Excel report (`prophet_call_predictions_v3.xlsx`) now includes
+The exported CSV file (`prophet_call_predictions_<hash>.csv`) now includes
 predictions for the previous 14 business days along with a forecast for the next
 business day. A seasonal naive baseline forecast using the call volume from the
 same weekday in the prior week and the corresponding MAE, RMSE and Poisson
