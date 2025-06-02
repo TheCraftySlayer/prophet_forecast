@@ -61,6 +61,7 @@ import shutil
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
+from pipeline import safe_git_hash
 
 import numpy as np
 
@@ -2306,9 +2307,12 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
-    mape = (
-        (result["abs_error"] / result["actual"].replace(0, np.nan)).mean() * 100
-    )
+    smape = (
+        2
+        * result["abs_error"]
+        /
+        (result["actual"].abs() + result["predicted"].abs())
+    ).replace([np.inf, -np.inf], np.nan).mean() * 100
     pdev = _mean_poisson_deviance(result["actual"], result["predicted"])
 
     resid_std = result["error"].std(ddof=0)
@@ -2322,8 +2326,8 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
     metrics = pd.DataFrame(
         {
-            "metric": ["MAE", "RMSE", "MAPE", "Poisson", "Coverage"],
-            "value": [mae, rmse, mape, pdev, coverage],
+            "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage"],
+            "value": [mae, rmse, smape, pdev, coverage],
         }
     )
 
@@ -2333,13 +2337,16 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             sub = result.head(h)
             mae_h = sub["abs_error"].mean()
             rmse_h = np.sqrt((sub["error"] ** 2).mean())
-            mape_h = (
-                (sub["abs_error"] / sub["actual"].replace(0, np.nan)).mean() * 100
-            )
+            smape_h = (
+                2
+                * sub["abs_error"]
+                /
+                (sub["actual"].abs() + sub["predicted"].abs())
+            ).replace([np.inf, -np.inf], np.nan).mean() * 100
             pdev_h = _mean_poisson_deviance(sub["actual"], sub["predicted"])
-            horizon_rows.append([h, mae_h, rmse_h, mape_h, pdev_h])
+            horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h])
     horizon_df = pd.DataFrame(
-        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE", "Poisson"]
+        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "sMAPE", "Poisson"]
     )
 
 
@@ -2426,19 +2433,19 @@ def export_baseline_forecast(df: pd.DataFrame, output_dir: Path) -> Path:
 
 def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
     """
-    Export Prophet forecast to Excel.
+    Export Prophet forecast to CSV.
 
-    The exported workbook now includes model performance for the
+    The exported file includes predictions for the
     previous 14 business days and a forecast for the next business day.
 
     Args:
         model: Trained Prophet model
         forecast: Prophet forecast DataFrame
         df: Original DataFrame
-        output_dir: Directory to save Excel file
+        output_dir: Directory to save CSV file
     """
     logger = logging.getLogger(__name__)
-    logger.info("Exporting Prophet forecast to Excel")
+    logger.info("Exporting Prophet forecast")
 
     if forecast.empty:
         raise ValueError("Forecast DataFrame is empty; nothing to export.")
@@ -2446,8 +2453,9 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
     # Create output directory if it doesn't exist
     output_dir.mkdir(exist_ok=True)
     
-    # Define output file
-    output_file = output_dir / "prophet_call_predictions_v4.xlsx"
+    commit = safe_git_hash()
+    suffix = commit[:8] if commit else datetime.now().strftime("%Y%m%d")
+    output_file = output_dir / f"prophet_call_predictions_{suffix}.csv"
     
     # Get the past 14 business days based on the available data
     last_date = df.index.max()
@@ -2501,117 +2509,19 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
                     next_day_forecast[[col]]
                 )
     
-    # Prepare next day info
-    next_day_df = pd.DataFrame({
-        'date': [next_day],
-        'predicted_calls': [next_day_forecast['yhat'].values[0]],
-        'lower_bound': [next_day_forecast['yhat_lower'].values[0]],
-        'upper_bound': [next_day_forecast['yhat_upper'].values[0]],
-        'day_of_week': [next_day.strftime('%A')]
-    })
+
     
-    # Create Excel writer
-    if _HAVE_OPENPYXL:
-        writer_ctx = pd.ExcelWriter(output_file, engine='openpyxl')
-    else:
-        # Fallback to CSV output if openpyxl is missing
-        writer_ctx = None
-
-    if writer_ctx:
-        with writer_ctx as writer:
-            # Past 14-day performance
-            recent_performance = pd.DataFrame({
-                'date': recent_forecast['ds'],
-                'predicted': recent_forecast['yhat'],
-                'actual': recent_forecast['actual'],
-                'lower_bound': recent_forecast['yhat_lower'],
-                'upper_bound': recent_forecast['yhat_upper'],
-                'error': recent_forecast['error'],
-                'abs_error': recent_forecast['abs_error']
-            })
-            recent_performance.to_excel(writer, sheet_name='Recent 14-Day Performance', index=False)
-
-            # Metrics for Prophet predictions
-            prophet_metrics = pd.DataFrame({
-                'metric': ['MAE', 'RMSE', 'Poisson'],
-                'value': [
-                    recent_performance['abs_error'].mean(),
-                    np.sqrt((recent_performance['error'] ** 2).mean()),
-                    _mean_poisson_deviance(recent_performance['actual'], recent_performance['predicted'])
-                ]
-            })
-            prophet_metrics.to_excel(writer, sheet_name='Prophet Metrics', index=False)
-
-            # Naive baseline forecast and metrics
-            result = compute_naive_baseline(df)
-            naive_df, naive_metrics = result[:2]
-            naive_df.to_excel(writer, sheet_name='Naive 14-Day Forecast', index=False)
-            naive_metrics.to_excel(writer, sheet_name='Naive Metrics', index=False)
-
-            # Next day forecast
-            next_day_df.to_excel(writer, sheet_name='Next Day Forecast', index=False)
-
-            # Model components
-            components = pd.DataFrame({
-                'Component': ['Trend', 'Weekly Seasonality', 'Yearly Seasonality', 'Holidays'],
-                'Description': [
-                    'Long-term trend component',
-                    'Day of week patterns',
-                    'Month of year patterns',
-                    'Special events (holidays, deadlines, press releases)'
-                ]
-            })
-            components.to_excel(writer, sheet_name='Model Components', index=False)
-
-            # Model parameters
-            parameters = pd.DataFrame({
-                'Parameter': [
-                    'yearly_seasonality',
-                    'weekly_seasonality',
-                    'daily_seasonality',
-                    'seasonality_mode',
-                    'changepoint_prior_scale'
-                ],
-                'Value': [
-                    model.yearly_seasonality,
-                    model.weekly_seasonality,
-                    model.daily_seasonality,
-                    model.seasonality_mode,
-                    model.changepoint_prior_scale
-                ],
-                'Description': [
-                    'Yearly seasonality enabled',
-                    'Weekly seasonality enabled',
-                    'Daily seasonality enabled',
-                    'How seasonality components combine with trend',
-                    'Flexibility of trend changepoints'
-                ]
-            })
-            parameters.to_excel(writer, sheet_name='Model Parameters', index=False)
-
-            # Notes
-            notes = pd.DataFrame({
-                'Note': [
-                    'This report contains predictions for customer service call volumes using Prophet.',
-                    f'The model was trained on data up to {df.index.max().strftime("%Y-%m-%d")}.',
-                    'Prophet automatically handles multiple seasonality patterns, holidays, and special events.',
-                    f'Next day forecast is for {next_day.strftime("%A, %B %d, %Y")}.',
-                    'Prediction intervals represent uncertainty in the forecast.',
-                    'Model accounts for day-of-week patterns, monthly seasonality, holidays, and special events.',
-                    'The "Recent 14-Day Performance" sheet compares predictions with actuals for the last 14 business days.'
-                ]
-            })
-            notes.to_excel(writer, sheet_name='Notes', index=False)
-    else:
-        # Minimal CSV fallback
-        fallback_df = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-        if scaler is not None:
-            for col in ['yhat', 'yhat_lower', 'yhat_upper']:
-                if col in fallback_df.columns:
-                    fallback_df[col] = scaler.inverse_transform(
-                        fallback_df[[col]]
-                    )
-        fallback_df.to_csv(output_file, index=False)
+    result_df = recent_forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper', 'actual']].copy()
+    next_row = {
+        'ds': next_day,
+        'yhat': next_day_forecast['yhat'].values[0],
+        'yhat_lower': next_day_forecast['yhat_lower'].values[0],
+        'yhat_upper': next_day_forecast['yhat_upper'].values[0],
+        'actual': np.nan,
+    }
+    result_df = pd.concat([result_df, pd.DataFrame([next_row])], ignore_index=True)
+    result_df = result_df.round(3)
+    result_df.to_csv(output_file, index=False)
     
     logger.info(f"Forecast exported to {output_file}")
     
@@ -2754,11 +2664,12 @@ def evaluate_prophet_model(
 
     mae  = metrics_df['mae' ].mean() if metrics_df is not None and 'mae'  in metrics_df else float('nan')
     rmse = metrics_df['rmse'].mean() if metrics_df is not None and 'rmse' in metrics_df else float('nan')
-    mape = (
-        metrics_df['mape'].mean()
-        if metrics_df is not None and 'mape' in metrics_df
-        else (np.abs(df_cv['y'] - df_cv['yhat']) / df_cv['y'].replace(0, np.nan)).mean() * 100
-    )
+    smape = (
+        2
+        * np.abs(df_cv['y'] - df_cv['yhat'])
+        /
+        (df_cv['y'].abs() + df_cv['yhat'].abs())
+    ).replace([np.inf, -np.inf], np.nan).mean() * 100
     pdev = _mean_poisson_deviance(df_cv['y'], df_cv['yhat'])
 
     coverage = (
@@ -2778,7 +2689,7 @@ def evaluate_prophet_model(
 
     logger.info(
         f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
-        f"MAPE {mape:.2f} | Poisson {pdev:.2f} | "
+        f"sMAPE {smape:.2f} | Poisson {pdev:.2f} | "
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
     )
 
@@ -2824,8 +2735,8 @@ def evaluate_prophet_model(
             break
 
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "MAPE", "Poisson", "Coverage"],
-        "value":  [mae,  rmse,  mape,  pdev, coverage]
+        "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage"],
+        "value":  [mae,  rmse,  smape,  pdev, coverage]
     })
 
     horizon_rows = []
@@ -2836,13 +2747,16 @@ def evaluate_prophet_model(
             continue
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
-        mape_h = (
-            (np.abs(sub['y'] - sub['yhat']) / sub['y'].replace(0, np.nan)).mean() * 100
-        )
+        smape_h = (
+            2
+            * np.abs(sub['y'] - sub['yhat'])
+            /
+            (sub['y'].abs() + sub['yhat'].abs())
+        ).replace([np.inf, -np.inf], np.nan).mean() * 100
         pdev_h = _mean_poisson_deviance(sub['y'], sub['yhat'])
-        horizon_rows.append([h, mae_h, rmse_h, mape_h, pdev_h])
+        horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h])
     horizon_table = pd.DataFrame(
-        horizon_rows, columns=['horizon_days','MAE','RMSE','MAPE','Poisson']
+        horizon_rows, columns=['horizon_days','MAE','RMSE','sMAPE','Poisson']
     )
 
     _check_horizon_escalation(horizon_table)
