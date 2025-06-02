@@ -23,6 +23,12 @@ if not defined PYTHON (
 REM ----- repo root -----
 pushd "%~dp0" || exit /b 2
 
+REM ----- cmdstanpy temp directory -----
+if not exist "C:\cmdstan_tmp" (
+    mkdir C:\cmdstan_tmp
+)
+set "CMDSTANPY_TMPDIR=C:\cmdstan_tmp"
+
 REM ----- venv -----
 if not exist ".venv\Scripts\python.exe" (
     "%PYTHON%" -m venv .venv || exit /b 3
