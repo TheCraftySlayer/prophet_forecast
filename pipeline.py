@@ -43,6 +43,20 @@ import hashlib
 import json
 import logging
 import subprocess
+
+
+def safe_git_hash() -> str | None:
+    """Return the current Git commit hash or ``None`` if unavailable."""
+    try:
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+    except subprocess.CalledProcessError:  # pragma: no cover - missing Git repo
+        return None
 from datetime import datetime
 
 import pandas as pd
@@ -219,14 +233,15 @@ def run_forecast(cfg: dict) -> None:
         with open(base_out / "latest_model.json", "w") as f:
             f.write(model_to_json(model))
 
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+    commit = safe_git_hash()
     checksums = {
         "calls": _checksum(call_path),
         "visitors": _checksum(visit_path),
         "queries": _checksum(chat_path),
     }
     logger.info("Run %s", run_id)
-    logger.info("commit: %s", commit)
+    if commit is not None:
+        logger.info("commit: %s", commit)
     logger.info("checksums: %s", json.dumps(checksums))
     logger.info("params: %s", json.dumps(model_params))
 
