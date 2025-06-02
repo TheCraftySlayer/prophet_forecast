@@ -508,8 +508,11 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
                 parallel="threads"
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
-            metrics_df = performance_metrics(df_cv, rolling_window=1)
-            if 'mean_poisson_deviance' in metrics_df.columns:
+            if not df_cv.empty and 'horizon' in df_cv.columns:
+                metrics_df = performance_metrics(df_cv, rolling_window=1)
+            else:
+                metrics_df = None
+            if metrics_df is not None and 'mean_poisson_deviance' in metrics_df.columns:
                 devs.append(metrics_df['mean_poisson_deviance'].mean())
             else:
                 devs.append(_mean_poisson_deviance(df_cv['y'], df_cv['yhat']))
@@ -1882,8 +1885,11 @@ def cross_validate_prophet(model, df, periods=30, horizon='14 days', initial='18
         horizon=horizon,
         parallel="threads",
     )
-    metrics_df = performance_metrics(df_cv)
-    return metrics_df['rmse'].mean()
+    if not df_cv.empty and 'horizon' in df_cv.columns:
+        metrics_df = performance_metrics(df_cv)
+    else:
+        metrics_df = None
+    return metrics_df['rmse'].mean() if metrics_df is not None else float('nan')
 
 def analyze_feature_importance(model, prophet_df, quick_mode=True):
     """
@@ -2793,10 +2799,13 @@ def evaluate_prophet_model(
     if 'horizon' not in df_cv.columns and {'ds', 'cutoff'} <= set(df_cv.columns):
         df_cv['horizon'] = df_cv['ds'] - df_cv['cutoff']
 
-    metrics_df = performance_metrics(df_cv, rolling_window=1)
+    if not df_cv.empty and 'horizon' in df_cv.columns:
+        metrics_df = performance_metrics(df_cv, rolling_window=1)
+    else:
+        metrics_df = None
 
-    mae  = metrics_df['mae' ].mean() if 'mae'  in metrics_df else float('nan')
-    rmse = metrics_df['rmse'].mean() if 'rmse' in metrics_df else float('nan')
+    mae  = metrics_df['mae' ].mean() if metrics_df is not None and 'mae'  in metrics_df else float('nan')
+    rmse = metrics_df['rmse'].mean() if metrics_df is not None and 'rmse' in metrics_df else float('nan')
     pdev = _mean_poisson_deviance(df_cv['y'], df_cv['yhat'])
 
     coverage = (
