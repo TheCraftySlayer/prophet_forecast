@@ -95,9 +95,7 @@ def _get_prophet():
 
 
 # Import Prophet
-from prophet.models import StanBackendCmdStanPy
-
-_HAVE_PROPHET = True
+_HAS_PROPHET = True
 cross_validation_func = cross_validation
 
 # Handle seaborn import safely
@@ -370,12 +368,6 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
     """
     logger = logging.getLogger(__name__)
     _ensure_tbb_on_path()
-
-    if not _HAVE_PROPHET:
-        logger.warning(
-            "Custom Stan model compile disabled: prophet not available"
-        )
-        return None
 
     try:
         import importlib.resources as pkg_resources
@@ -1154,23 +1146,11 @@ def train_prophet_model(
         else:
             logger.warning("Falling back to normal likelihood")
 
-    backend = None
-    if custom_model_path and _HAVE_PROPHET:
-        try:
-            with open(custom_model_path, "rb") as f:
-                compiled_model = pickle.load(f)
-            backend = StanBackendCmdStanPy(model=compiled_model)
-        except Exception as e:  # pragma: no cover - prophet may be missing
-            logger.warning(f"Could not create custom Stan backend: {e}")
-
-    if backend:
-        model = P(stan_backend=backend, **default_params)
-    else:
-        model = P(stan_backend="CMDSTANPY", **default_params)
+    model = P(stan_backend="CMDSTANPY", **default_params)
     if not default_params.get("weekly_seasonality", False):
         model.add_seasonality(name="weekly", period=7, fourier_order=5)
 
-    if custom_model_path and backend is None:
+    if custom_model_path:
         try:
             with open(custom_model_path, "rb") as f:
                 compiled_model = pickle.load(f)
