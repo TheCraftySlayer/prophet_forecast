@@ -468,31 +468,56 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
     except Exception as e:  # pragma: no cover - compilation may fail on CI
         logger.warning(f"Failed to compile custom Stan model: {e}")
         return None
-def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
-    """Find optimal Prophet hyperparameters using grid search"""
+def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None, cv_params=None):
+    """Grid search prior scales using rolling cross‑validation.
+
+    Parameters
+    ----------
+    prophet_df : DataFrame
+        Prepared Prophet training data.
+    prophet_kwargs : dict, optional
+        Extra arguments passed to the ``Prophet`` constructor.
+    cv_params : dict, optional
+        ``initial``, ``period`` and ``horizon`` parameters for cross‑validation.
+
+    Returns
+    -------
+    dict
+        Best performing hyperparameters.
+    """
     logger = logging.getLogger(__name__)
     logger.info("Tuning Prophet hyperparameters")
-    
+
     if prophet_kwargs:
         prophet_kwargs = {**PROPHET_KWARGS, **prophet_kwargs}
     else:
         prophet_kwargs = PROPHET_KWARGS
 
-    # Parameter grid expanded on a log scale
+    if cv_params is None:
+        cv_params = {}
+    initial = cv_params.get('initial', '180 days')
+    period = cv_params.get('period', '30 days')
+    horizon = cv_params.get('horizon', '14 days')
+
+    # Parameter grid
     param_grid = {
-        'changepoint_prior_scale': list(np.logspace(-2, 0, 10))
+        'changepoint_prior_scale': list(np.logspace(-2, 0, 3)),
+        'seasonality_prior_scale': list(np.logspace(-2, 0, 3)),
+        'holidays_prior_scale': [1.0, 5.0, 10.0],
     }
-    
-    # Generate all combinations
+
     all_params = [dict(zip(param_grid.keys(), v)) for v in itertools.product(*param_grid.values())]
-    
-    # Storage for results
-    devs = []
-    
-    # Use cross-validation to evaluate
+
+    results: list[tuple[float, float, dict]] = []
+
     for i, params in enumerate(all_params):
-        logger.info(f"Testing hyperparameter combination {i+1}/{len(all_params)}")
-        
+        logger.info(
+            "Testing hyperparameter combination %s/%s: %s",
+            i + 1,
+            len(all_params),
+            params,
+        )
+
         try:
             P = _get_prophet()
             if P is None:
@@ -516,32 +541,48 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
                 raise ImportError("prophet package is required for cross validation")
             df_cv = cross_validation_func(
                 m,
-                initial='180 days',
-                period='30 days',
-                horizon='14 days',
-                parallel="threads"
+                initial=initial,
+                period=period,
+                horizon=horizon,
+                parallel="threads",
             )
             df_cv = df_cv[df_cv['ds'].dt.dayofweek < 5]
             if not df_cv.empty and 'horizon' in df_cv.columns:
                 metrics_df = performance_metrics(df_cv, rolling_window=1)
+                mae = metrics_df['mae'].mean()
             else:
                 metrics_df = None
-            if metrics_df is not None and 'mean_poisson_deviance' in metrics_df.columns:
-                devs.append(metrics_df['mean_poisson_deviance'].mean())
-            else:
-                devs.append(_mean_poisson_deviance(df_cv['y'], df_cv['yhat']))
+                mae = np.mean(np.abs(df_cv['y'] - df_cv['yhat']))
+            smape = (
+                2
+                * np.abs(df_cv['y'] - df_cv['yhat'])
+                /
+                (df_cv['y'].abs() + df_cv['yhat'].abs())
+            ).replace([np.inf, -np.inf], np.nan).mean() * 100
+            logger.info("→ MAE %.2f | sMAPE %.2f", mae, smape)
+            results.append((mae, smape, params))
         except Exception as e:
-            logger.warning(f"Error with hyperparameter combination {params}: {str(e)}")
-            devs.append(float('inf'))  # Assign worst possible score
-    
-    # Find best parameters
-    if not devs or all(np.isinf(devs)):
+            logger.warning("Error with hyperparameter combination %s: %s", params, str(e))
+
+    if not results:
         logger.warning("All hyperparameter combinations failed, using defaults")
-        best_params = {'changepoint_prior_scale': 0.2, 'seasonality_prior_scale': 0.01, 'holidays_prior_scale': 5}
+        return {
+            'changepoint_prior_scale': 0.2,
+            'seasonality_prior_scale': 0.01,
+            'holidays_prior_scale': 5,
+        }
+
+    best_mae, best_smape, best_params = min(results, key=lambda r: r[0])
+    if best_mae <= 62 and best_smape <= 32:
+        logger.info("Best parameters meet target metrics: MAE %.2f, sMAPE %.2f", best_mae, best_smape)
     else:
-        best_params = all_params[np.argmin(devs)]
-    
-    logger.info(f"Best parameters found: {best_params}")
+        logger.warning(
+            "Best parameters did not meet target metrics: MAE %.2f, sMAPE %.2f",
+            best_mae,
+            best_smape,
+        )
+
+    logger.info("Best parameters found: %s", best_params)
     return best_params
 def setup_logging():
     """Configure logging for the application"""
