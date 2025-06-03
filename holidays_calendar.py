@@ -133,7 +133,30 @@ def get_holidays_dataframe() -> pd.DataFrame:
             for d in dates:
                 records.append({"date": d, "event": row.feature})
 
-    df = pd.DataFrame(records).sort_values("date").reset_index(drop=True)
+    df = pd.DataFrame(records)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.drop_duplicates(subset=["date", "event"])
+
+    # Gap-fill event ranges so regressors remain aligned
+    filled = []
+    for event, grp in df.groupby("event"):
+        grp = grp.sort_values("date")
+        start = grp["date"].iloc[0]
+        prev = start
+        for cur in grp["date"].iloc[1:]:
+            if (cur - prev).days > 1:
+                dates = pd.date_range(start, prev)
+                for d in dates:
+                    filled.append({"date": d, "event": event})
+                start = cur
+            prev = cur
+        dates = pd.date_range(start, prev)
+        for d in dates:
+            filled.append({"date": d, "event": event})
+
+    df = pd.DataFrame(filled).drop_duplicates(subset=["date", "event"])\
+        .sort_values("date")
+    df.reset_index(drop=True, inplace=True)
     return df
 
 
