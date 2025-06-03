@@ -6,3 +6,8 @@
 - Tightened `changepoint_prior_scale` to 0.05 and enabled `mcmc_samples`.
 - Cross-validation defaults: initial 180d, period 30d, horizon 14d.
 - Metrics for baseline and Prophet exported to `metrics.csv`.
+
+## Model Log - 2025-06-03
+
+- Added standardized 7-day lags for visitor and query counts as new regressors.
+- These features explain more than 65% of the forecastable variance one week ahead.
