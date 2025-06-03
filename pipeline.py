@@ -146,7 +146,9 @@ def run_forecast(cfg: dict) -> None:
     )
 
     best_params = tune_prophet_hyperparameters(
-        prophet_df, prophet_kwargs=prophet_kwargs
+        prophet_df,
+        prophet_kwargs=prophet_kwargs,
+        cv_params=cfg.get("cross_validation", {}),
     )
     model_params = {
         "seasonality_mode": cfg["model"]["seasonality_mode"],
