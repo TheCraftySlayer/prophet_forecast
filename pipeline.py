@@ -200,7 +200,7 @@ def run_forecast(cfg: dict) -> None:
         model,
         prophet_df,
         cv_params=cv_params,
-        forecast=forecast,
+        forecast=None,
         scaler=None,
         transform=cfg["model"].get("transform", "log"),
     )
