@@ -907,7 +907,17 @@ def prepare_data(
         df['county_holiday_flag'] != 0
     ) | (df['deadline_flag'] != 0) | (df['notice_flag'] != 0)
     df['outlier_flag'] = hampel(df['call_count']) & (~event_mask)
-    df['spike_flag'] = (df['call_count'] > df['call_count'].quantile(0.99)).astype(int)
+
+    # Winsorize and flag extreme spikes at the 99.5th percentile
+    spike_thresh = df['call_count'].quantile(0.995)
+    spike_mask = df['call_count'] > spike_thresh
+    if spike_mask.any():
+        logger.info(
+            "Winsorizing %d call spikes above 99.5th percentile",
+            spike_mask.sum(),
+        )
+        df.loc[spike_mask, 'call_count'] = spike_thresh
+    df['spike_flag'] = spike_mask.astype(int)
 
     # Keep intermediate quality flags for modeling
     df = df.drop(columns=['zero_call_flag', 'missing_flag'])
