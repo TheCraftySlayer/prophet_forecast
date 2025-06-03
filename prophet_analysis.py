@@ -133,6 +133,7 @@ PROPHET_KWARGS = {
     "yearly_seasonality": "auto",
     "weekly_seasonality": False,
     "daily_seasonality": False,
+    "stan_backend": "CMDSTANPY",
 }
 
 # Core regressor columns used throughout the model. These are expected to
@@ -428,7 +429,9 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None):
     logger = logging.getLogger(__name__)
     logger.info("Tuning Prophet hyperparameters")
     
-    if prophet_kwargs is None:
+    if prophet_kwargs:
+        prophet_kwargs = {**PROPHET_KWARGS, **prophet_kwargs}
+    else:
         prophet_kwargs = PROPHET_KWARGS
 
     # Parameter grid expanded on a log scale
@@ -1089,8 +1092,10 @@ def train_prophet_model(
     
     # Initialize Prophet model with optional tuned parameters
 
-    if prophet_kwargs is None:
-        prophet_kwargs = PROPHET_KWARGS
+    if prophet_kwargs:
+       prophet_kwargs = {**PROPHET_KWARGS, **prophet_kwargs}
+    else:
+       prophet_kwargs = PROPHET_KWARGS
 
     default_params = {
         **prophet_kwargs,
@@ -1147,7 +1152,7 @@ def train_prophet_model(
         else:
             logger.warning("Falling back to normal likelihood")
 
-    model = P(stan_backend="CMDSTANPY", **default_params)
+    model = P(**default_params)
     if not default_params.get("weekly_seasonality", False):
         model.add_seasonality(name="weekly", period=7, fourier_order=5)
 
