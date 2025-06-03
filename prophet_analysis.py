@@ -2577,6 +2577,7 @@ def evaluate_prophet_model(
     attempts = 0
     current_scale = model.changepoint_prior_scale
     orig_model = model
+    forecast_adj = forecast.copy() if forecast is not None else None
 
     if cross_validation_func is None:
         raise ImportError("prophet package is required for cross validation")
@@ -2635,28 +2636,28 @@ def evaluate_prophet_model(
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
             if col in df_cv.columns:
                 df_cv[col] = np.expm1(df_cv[col])
-        if forecast is not None:
+        if forecast_adj is not None:
             for col in ['yhat', 'yhat_lower', 'yhat_upper']:
-                if col in forecast.columns:
-                    forecast[col] = np.expm1(forecast[col])
+                if col in forecast_adj.columns:
+                    forecast_adj[col] = np.expm1(forecast_adj[col])
     elif transform == "box-cox":
         _, lam, shift = box_cox_transform(prophet_df['y'])
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
             if col in df_cv.columns:
                 df_cv[col] = inv_box_cox_transform(df_cv[col], lam, shift)
-        if forecast is not None:
+        if forecast_adj is not None:
             for col in ['yhat', 'yhat_lower', 'yhat_upper']:
-                if col in forecast.columns:
-                    forecast[col] = inv_box_cox_transform(forecast[col], lam, shift)
+                if col in forecast_adj.columns:
+                    forecast_adj[col] = inv_box_cox_transform(forecast_adj[col], lam, shift)
 
     if scaler is not None:
         for col in ['y', 'yhat', 'yhat_lower', 'yhat_upper']:
             if col in df_cv.columns:
                 df_cv[col] = scaler.inverse_transform(df_cv[[col]])
-        if forecast is not None:
+        if forecast_adj is not None:
             for col in ['yhat', 'yhat_lower', 'yhat_upper']:
-                if col in forecast.columns:
-                    forecast[col] = scaler.inverse_transform(forecast[[col]])
+                if col in forecast_adj.columns:
+                    forecast_adj[col] = scaler.inverse_transform(forecast_adj[[col]])
 
     # Propagate horizon column if not provided by cross_validation
     if 'horizon' not in df_cv.columns and {'ds', 'cutoff'} <= set(df_cv.columns):
@@ -2718,10 +2719,10 @@ def evaluate_prophet_model(
             if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns):
                 df_cv['yhat_lower'] += adj
                 df_cv['yhat_upper'] += adj
-            if forecast is not None:
+            if forecast_adj is not None:
                 hist = list(r.iloc[-14:].to_numpy())
                 fut_adj = []
-                for _ in range(len(forecast)):
+                for _ in range(len(forecast_adj)):
                     x1 = hist[-1]
                     x7 = hist[-7]
                     x14 = hist[0]
@@ -2730,8 +2731,8 @@ def evaluate_prophet_model(
                     hist.append(pred)
                     hist.pop(0)
                 fut_adj = np.array(fut_adj)
-                forecast[['yhat', 'yhat_lower', 'yhat_upper']] = (
-                    forecast[['yhat', 'yhat_lower', 'yhat_upper']].add(fut_adj[:, None])
+                forecast_adj[['yhat', 'yhat_lower', 'yhat_upper']] = (
+                    forecast_adj[['yhat', 'yhat_lower', 'yhat_upper']].add(fut_adj[:, None])
                 )
             residuals = df_cv['y'] - df_cv['yhat']
             lb = acorr_ljungbox(residuals, lags=14, return_df=True)
