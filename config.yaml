@@ -18,7 +18,7 @@ model:
   weekly_seasonality: false
   yearly_seasonality: auto
   daily_seasonality: false
-  likelihood: poisson
+  likelihood: auto
   weekly_incremental: true
   capacity: 1000
   enable_mcmc: false
