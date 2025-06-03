@@ -142,6 +142,8 @@ PROPHET_KWARGS = {
 REGRESSORS = [
     "visit_ma3",
     "chatbot_count",
+    "visit_lag7",
+    "query_lag7",
     "call_lag7",
     "monday_effect",
     "is_campaign",
@@ -869,6 +871,12 @@ def prepare_data(
     df["call_ma7"] = df["call_count"].rolling(7, min_periods=1).mean()
     df["call_std7"] = df["call_count"].rolling(7, min_periods=1).std().fillna(0).astype(float)
 
+    df["visit_lag7"] = df["visit_count"].shift(7).fillna(0).astype(float)
+    mean_visit_lag7 = df["visit_lag7"].mean()
+    std_visit_lag7 = df["visit_lag7"].std()
+    if std_visit_lag7 != 0:
+        df["visit_lag7"] = (df["visit_lag7"] - mean_visit_lag7) / std_visit_lag7
+
     df["visit_ma3"] = df["visit_count"].rolling(3, min_periods=1).mean()
 
     # Standardize chatbot counts on log scale
@@ -879,6 +887,12 @@ def prepare_data(
         df["chatbot_count"] = (df["chatbot_count"] - mean_chat) / std_chat
     df["chatbot_count"] = winsorize_series(df["chatbot_count"], limit=3)
     df["chatbot_ma3"] = df["chatbot_count"].rolling(3, min_periods=1).mean()
+
+    df["query_lag7"] = df["chatbot_count"].shift(7).fillna(0).astype(float)
+    mean_query_lag7 = df["query_lag7"].mean()
+    std_query_lag7 = df["query_lag7"].std()
+    if std_query_lag7 != 0:
+        df["query_lag7"] = (df["query_lag7"] - mean_query_lag7) / std_query_lag7
 
     # Winsorize continuous regressors
     for col in ["visit_ma3", "chatbot_count", "chatbot_ma3"]:
@@ -899,6 +913,8 @@ def prepare_data(
     important_regs = [
         "visit_ma3",
         "chatbot_count",
+        "visit_lag7",
+        "query_lag7",
         "call_lag7",
         "monday_effect",
         "deadline_flag",
@@ -1197,6 +1213,8 @@ def train_prophet_model(
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
+        'visit_lag7',
+        'query_lag7',
         'call_lag7',
         'monday_effect',
         'notice_flag',
@@ -1288,6 +1306,8 @@ def train_prophet_model(
     # Required regressors only
     future_regs['visit_ma3'] = 0
     future_regs['chatbot_count'] = 0
+    future_regs['visit_lag7'] = 0
+    future_regs['query_lag7'] = 0
     future_regs['call_lag7'] = 0
     future_regs['monday_effect'] = 0
     future_regs['notice_flag'] = 0
@@ -1348,6 +1368,8 @@ def train_prophet_model(
     check_cols = [
         'visit_ma3',
         'chatbot_count',
+        'visit_lag7',
+        'query_lag7',
         'call_lag7',
         'monday_effect',
         'notice_flag',
@@ -1515,6 +1537,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     important_regressors = [
         'visit_ma3',
         'chatbot_count',
+        'visit_lag7',
+        'query_lag7',
         'call_lag7',
         'monday_effect',
         'notice_flag',
