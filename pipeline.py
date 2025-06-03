@@ -138,7 +138,11 @@ def run_forecast(cfg: dict) -> None:
     )
     prophet_df = prepare_prophet_data(df)
 
-    prophet_kwargs = build_prophet_kwargs(cfg["model"]) 
+    prophet_kwargs = build_prophet_kwargs(cfg["model"])
+    prophet_kwargs.setdefault(
+        "stan_backend",
+        cfg["model"].get("stan_backend", "cmdstanpy"),
+    )
 
     best_params = tune_prophet_hyperparameters(
         prophet_df, prophet_kwargs=prophet_kwargs
@@ -206,7 +210,24 @@ def run_forecast(cfg: dict) -> None:
     export_prophet_forecast(model, forecast, df, out_dir, scaler=None)
     export_baseline_forecast(df, out_dir)
 
+ # ------------------------------------------------------------------
+    # Guarantee that both result-tables contain a “MAPE” column
+    # ------------------------------------------------------------------
+    import numpy as np
+
+    def _ensure_mape(table: pd.DataFrame, obs: str = "y", pred: str = "yhat"):
+        """
+        Add a constant MAPE column (one value per table) if it's missing.
+        The helpers upstream sometimes don’t compute MAPE.
+        """
+        if "MAPE" not in table.columns and {obs, pred}.issubset(table.columns):
+            mape = 100 * np.mean(np.abs((table[obs] - table[pred]) / table[obs]))
+            table["MAPE"] = mape
+
+    _ensure_mape(horizon_table)
+
     baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(df)
+    _ensure_mape(baseline_horizon)
     cov_b = baseline_metrics.loc[
         baseline_metrics["metric"] == "Coverage", "value"
     ].iloc[0]
@@ -220,11 +241,13 @@ def run_forecast(cfg: dict) -> None:
     prophet_metrics = horizon_table.rename(columns={"horizon_days": "horizon"}).copy()
     prophet_metrics["model"] = "prophet"
     prophet_metrics["coverage"] = coverage
+
+    wanted = ["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]
+    metrics_baseline = metrics_baseline[[c for c in wanted if c in metrics_baseline]]
+    prophet_metrics  = prophet_metrics [[c for c in wanted if c in prophet_metrics ]]
+
     metrics = pd.concat(
-        [
-            metrics_baseline[["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]],
-            prophet_metrics[["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]],
-        ],
+        [metrics_baseline, prophet_metrics],
         ignore_index=True,
     )
     write_summary(metrics, out_dir / "metrics.csv")
