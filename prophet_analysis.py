@@ -1750,6 +1750,55 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     return ensemble_forecast, models
 
 
+def create_stacked_ensemble(prophet_df, holidays_df, regressors_df):
+    """Return stacked ensemble forecast using Prophet, GBM and elastic-net."""
+    logger = logging.getLogger(__name__)
+    logger.info("Training stacked ensemble of Prophet + GBM + elastic-net")
+
+    # Fit base Prophet model
+    model, forecast, future = train_prophet_model(
+        prophet_df, holidays_df, regressors_df, future_periods=30
+    )
+
+    try:  # Import scikit-learn when available
+        from sklearn.ensemble import GradientBoostingRegressor
+        from sklearn.linear_model import ElasticNet, LinearRegression
+    except Exception:  # pragma: no cover - missing sklearn
+        logger.warning("Scikit-learn not available; returning Prophet forecast")
+        return forecast, {"prophet": model}
+
+    X = regressors_df.fillna(0.0).to_numpy()
+    y = prophet_df["y"].to_numpy()
+
+    gbm = GradientBoostingRegressor()
+    gbm.fit(X, y)
+
+    enet = ElasticNet()
+    enet.fit(X, y)
+
+    meta_features = np.column_stack(
+        [forecast["yhat"].to_numpy(), gbm.predict(X), enet.predict(X)]
+    )
+    meta = LinearRegression()
+    meta.fit(meta_features, y)
+
+    future_X = regressors_df.reindex(future["ds"]).fillna(0.0).to_numpy()
+    base_preds = np.column_stack(
+        [forecast["yhat"].to_numpy(), gbm.predict(future_X), enet.predict(future_X)]
+    )
+    stacked = meta.predict(base_preds)
+
+    ensemble_forecast = forecast.copy()
+    ensemble_forecast["yhat"] = stacked
+
+    return ensemble_forecast, {
+        "prophet": model,
+        "gbm": gbm,
+        "elastic": enet,
+        "meta": meta,
+    }
+
+
 def detect_outliers_prophet(df, forecast):
     """
     Detect outliers based on Prophet forecast
