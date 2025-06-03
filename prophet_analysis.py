@@ -149,6 +149,26 @@ REGRESSORS = [
     "is_campaign",
 ]
 
+# Event categories used when encoding assessor events
+SHOCK_EVENTS = {
+    "bill_mailed",
+    "first_half_due",
+    "late_fee_start",
+    "nov_mailed",
+    "amendment_briefing",
+    "media_spot",
+}
+OUTAGE_EVENTS = {
+    "portal_down",
+    "site_outage",
+    "days_to_protest_deadline",
+}
+POLICY_EVENTS = {
+    "hb47_effective",
+    "freeze_launch",
+    "agents_available",
+}
+
 
 def build_prophet_kwargs(model_cfg: dict) -> dict:
     """Return Prophet keyword arguments merged with defaults."""
@@ -355,6 +375,28 @@ def compute_regressor_significance(
 
     logger.info("Regressor p-values: %s", pvals)
     return significant, pvals
+
+
+def encode_assessor_events(
+    idx: pd.DatetimeIndex, events_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Return DataFrame with assessor event indicators aligned to ``idx``."""
+    events_df = events_df.copy()
+    events_df["date"] = pd.to_datetime(events_df["date"])
+    flags = pd.DataFrame(index=idx)
+
+    for feature in SHOCK_EVENTS | OUTAGE_EVENTS:
+        dates = events_df.loc[events_df["event"] == feature, "date"]
+        flags[feature] = idx.isin(dates).astype(int)
+
+    for feature in POLICY_EVENTS:
+        start = events_df.loc[events_df["event"] == feature, "date"].min()
+        if pd.isna(start):
+            flags[feature] = 0
+        else:
+            flags[feature] = (idx >= start).astype(int)
+
+    return flags
 
 
 def compile_custom_stan_model(likelihood: str) -> Path | None:
@@ -832,6 +874,13 @@ def prepare_data(
     df['is_business_day'] = (
         (df.index.dayofweek < 5) & ~df.index.isin(holiday_dates)
     ).astype(int)
+
+    # Encode assessor events as separate indicators
+    mask_events = holiday_df['event'].isin(
+        SHOCK_EVENTS | OUTAGE_EVENTS | POLICY_EVENTS
+    )
+    assessor_flags = encode_assessor_events(df.index, holiday_df.loc[mask_events])
+    df = pd.concat([df, assessor_flags], axis=1)
 
     def hampel(series, window=7, n_sigmas=3):
         median = series.rolling(window, center=True).median()
