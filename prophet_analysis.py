@@ -1554,6 +1554,36 @@ def _mean_poisson_deviance(actual, predicted) -> float:
         terms = p - a + a * np.where(a > 0, np.log(a / p), 0.0)
     return float(np.mean(2.0 * terms))
 
+
+def select_likelihood(y: pd.Series, threshold: float = 1.2) -> str:
+    """Return appropriate count likelihood for ``y``.
+
+    The function compares the variance-to-mean ratio of ``y`` against
+    ``threshold``. A ratio greater than the threshold indicates
+    over-dispersion and ``'neg_binomial'`` is returned. Otherwise ``'poisson'``
+    is chosen.
+
+    Parameters
+    ----------
+    y : Series
+        Target count series.
+    threshold : float, optional
+        Ratio above which the negative-binomial likelihood is used.
+
+    Returns
+    -------
+    str
+        ``'neg_binomial'`` or ``'poisson'``.
+    """
+    try:  # ``pandas`` may be stubbed
+        var = float(y.var())
+        mean = float(y.mean())
+    except Exception:
+        return "poisson"
+    if mean > 0 and var / mean > threshold:
+        return "neg_binomial"
+    return "poisson"
+
 def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
     """Create a simple ensemble of multiple Prophet models"""
     logger = logging.getLogger(__name__)

@@ -145,7 +145,7 @@ hyperparameters are now tuned for a more flexible trend:
 - `seasonality_prior_scale=0.01`
 - `uncertainty_samples=300`
 - `regressor_prior_scale=0.05`
-- `likelihood=normal`
+- `likelihood=auto` (automatically selects Poisson or negative-binomial)
 - `yearly_seasonality=auto`
 - `weekly_seasonality=false` and a custom weekly component with `fourier_order=5`
 - `capacity` sets the logistic growth cap (defaults to 110% of training max)

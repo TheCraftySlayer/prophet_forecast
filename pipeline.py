@@ -74,6 +74,7 @@ from prophet_analysis import (
     export_prophet_forecast,
     model_to_json,
     write_summary,
+    select_likelihood,
 )
 
 
@@ -184,6 +185,10 @@ def run_forecast(cfg: dict) -> None:
         press_release_dates=[],
     )
 
+    likelihood = cfg["model"].get("likelihood", "auto")
+    if likelihood == "auto":
+        likelihood = select_likelihood(df["call_count"])
+
     model, forecast, future = train_prophet_model(
         prophet_df,
         holidays,
@@ -191,7 +196,7 @@ def run_forecast(cfg: dict) -> None:
         future_periods=30,
         model_params=model_params,
         prophet_kwargs=prophet_kwargs,
-        likelihood=cfg["model"].get("likelihood", "normal"),
+        likelihood=likelihood,
         transform=cfg["model"].get("transform", "log"),
     )
 
