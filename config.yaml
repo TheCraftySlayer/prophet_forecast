@@ -16,7 +16,7 @@ model:
   transform: log
   mcmc_samples: 0
   interval_width: 0.9
-  weekly_seasonality: false
+  weekly_seasonality: auto
   yearly_seasonality: auto
   daily_seasonality: false
   use_hourly: false

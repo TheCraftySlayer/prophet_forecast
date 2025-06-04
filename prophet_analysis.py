@@ -131,7 +131,7 @@ except Exception:  # pragma: no cover - optional dependency may be missing
 POLICY_LOWER = True
 PROPHET_KWARGS = {
     "yearly_seasonality": "auto",
-    "weekly_seasonality": False,
+    "weekly_seasonality": "auto",
     "daily_seasonality": False,
     "stan_backend": "CMDSTANPY",
 }
