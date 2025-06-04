@@ -172,7 +172,7 @@ hyperparameters are now tuned for a more flexible trend:
 - `regressor_prior_scale=0.05`
 - `likelihood=auto` (automatically selects Poisson or negative-binomial)
 - `yearly_seasonality=auto`
-- `weekly_seasonality=false` and a custom weekly component with `fourier_order=5`
+- `weekly_seasonality=auto` or a custom weekly component with `fourier_order=5` when explicitly disabled
 - `capacity` sets the logistic growth cap (defaults to 110% of training max)
 
 Hyperparameter tuning relies on rolling cross‑validation. The grid explores
