@@ -135,7 +135,12 @@ def run_forecast(cfg: dict) -> None:
     configure_logging(out_dir / "cmdstan.log")
 
     df, regressors = prepare_data(
-        call_path, visit_path, chat_path, events=cfg.get("events", {}), scale_features=True
+        call_path,
+        visit_path,
+        chat_path,
+        events=cfg.get("events", {}),
+        scale_features=True,
+        hourly_call_path=Path(cfg["data"].get("hourly_calls")) if cfg["data"].get("hourly_calls") else None,
     )
     prophet_df = prepare_prophet_data(df)
 

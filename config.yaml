@@ -1,5 +1,6 @@
 data:
   calls: calls.csv
+  hourly_calls: hourly_call_data.csv
   visitors: visitors.csv
   queries: queries.csv
 output: prophet_output

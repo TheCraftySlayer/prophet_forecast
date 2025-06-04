@@ -615,6 +615,29 @@ def load_time_series_sqlite(
     return series.reindex(full_idx).fillna(0)
 
 
+def aggregate_hourly_calls(path: Path) -> pd.Series:
+    """Aggregate hourly call CSV to daily totals without heavy dependencies."""
+    import csv
+    from collections import defaultdict
+
+    counts = defaultdict(int)
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        hour_col = reader.fieldnames[0]
+        count_col = reader.fieldnames[1]
+        for row in reader:
+            dt = datetime.strptime(row[hour_col], "%m/%d/%Y %H:%M")
+            counts[dt.date()] += int(row[count_col])
+
+    if not counts:
+        return pd.Series(dtype=float)
+
+    series = pd.Series(counts)
+    series.index = pd.to_datetime(series.index)
+    full_idx = pd.date_range(series.index.min(), series.index.max(), freq="D")
+    return series.reindex(full_idx).fillna(0)
+
+
 @lru_cache(maxsize=None)
 def load_time_series(path: Path, metric: str = "call") -> pd.Series:
     """Load a time series from a CSV, Excel or SQLite file."""
@@ -753,6 +776,7 @@ def prepare_data(
     cleaned_calls=None,
     scale_features=True,
     events: dict | None = None,
+    hourly_call_path: Path | None = None,
 ):
     """Prepare time series data with configurable event windows."""
 
@@ -783,6 +807,10 @@ def prepare_data(
 
     # Load time series data (existing code)
     calls = load_time_series(call_path, metric="call")
+    if hourly_call_path is not None:
+        hourly = aggregate_hourly_calls(Path(hourly_call_path))
+        calls = calls.reindex(calls.index.union(hourly.index)).fillna(0)
+        calls.update(hourly)
     if cleaned_calls is not None:
         logger.info("Using provided cleaned call data")
         if not isinstance(cleaned_calls, pd.Series):
