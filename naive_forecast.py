@@ -1,4 +1,4 @@
-"""Seasonal naive forecast using last week's same hour."""
+"""Seasonal naive forecast using the same hour one week earlier."""
 
 import csv
 from datetime import datetime
@@ -27,8 +27,9 @@ def main() -> None:
     preds = []
     acts = []
     dates = []
-    for i in range(24 * 7, len(rows)):
-        preds.append(rows[i - 24 * 7][1])
+    hours = 24 * 7
+    for i in range(hours, len(rows)):
+        preds.append(rows[i - hours][1])
         acts.append(rows[i][1])
         dates.append(rows[i][0])
 
