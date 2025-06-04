@@ -29,6 +29,11 @@ if not _USE_STUB_LIBS:
 
 from prophet import Prophet
 print("Explicit Prophet import successful:", Prophet)
+from staffing_diagnostics import (
+    mean_call_volumes,
+    relative_mae,
+    staffing_cost,
+)
 try:
     from ruamel.yaml import YAML  # type: ignore
 except ModuleNotFoundError:
@@ -189,15 +194,36 @@ def run_forecast(cfg: dict) -> None:
             ).replace([np.inf, -np.inf], np.nan).mean() * 100
             summary = pd.DataFrame(
                 {
-                    "metric": ["MAE", "RMSE", "sMAPE", "Coverage", "ZeroAcc"],
+                    "metric": [
+                        "MAE",
+                        "RMSE",
+                        "sMAPE",
+                        "Coverage",
+                        "ZeroAcc",
+                        "MAE_pct",
+                        "Cost",
+                    ],
                     "value": [
                         joined["abs_error"].mean(),
                         np.sqrt((joined["error"] ** 2).mean()),
                         smape,
                         coverage,
                         zero_acc,
+                        float("nan"),  # filled later
+                        float("nan"),
                     ],
                 }
+            )
+            mean_daily, mean_hourly = mean_call_volumes(df["ds"], df["y"])
+            summary.loc[summary["metric"] == "MAE_pct", "value"] = relative_mae(
+                joined["abs_error"], mean_daily
+            )
+            summary.loc[summary["metric"] == "Cost", "value"] = staffing_cost(
+                joined["actual"],
+                joined["yhat"],
+                mean_daily,
+                understaff_penalty=2.0,
+                overstaff_penalty=1.0,
             )
             horizon_rows = []
             for h in [1, 7, 14]:
