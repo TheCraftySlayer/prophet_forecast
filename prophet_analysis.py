@@ -144,6 +144,8 @@ REGRESSORS = [
     "chatbot_count",
     "visit_lag7",
     "query_lag7",
+    "call_lag1",
+    "call_lag3",
     "call_lag7",
     "monday_effect",
     "is_campaign",
@@ -1015,6 +1017,8 @@ def prepare_data(
         "chatbot_count",
         "visit_lag7",
         "query_lag7",
+        "call_lag1",
+        "call_lag3",
         "call_lag7",
         "monday_effect",
         "deadline_flag",
@@ -1315,6 +1319,8 @@ def train_prophet_model(
         'chatbot_count',
         'visit_lag7',
         'query_lag7',
+        'call_lag1',
+        'call_lag3',
         'call_lag7',
         'monday_effect',
         'notice_flag',
@@ -1408,6 +1414,8 @@ def train_prophet_model(
     future_regs['chatbot_count'] = 0
     future_regs['visit_lag7'] = 0
     future_regs['query_lag7'] = 0
+    future_regs['call_lag1'] = 0
+    future_regs['call_lag3'] = 0
     future_regs['call_lag7'] = 0
     future_regs['monday_effect'] = 0
     future_regs['notice_flag'] = 0
@@ -1470,6 +1478,8 @@ def train_prophet_model(
         'chatbot_count',
         'visit_lag7',
         'query_lag7',
+        'call_lag1',
+        'call_lag3',
         'call_lag7',
         'monday_effect',
         'notice_flag',
@@ -1669,6 +1679,8 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         'chatbot_count',
         'visit_lag7',
         'query_lag7',
+        'call_lag1',
+        'call_lag3',
         'call_lag7',
         'monday_effect',
         'notice_flag',
