@@ -2593,11 +2593,17 @@ def compute_naive_baseline(
         actual = recent.iloc[-14:]
         dates = recent.index[-14:]
 
-        result = pd.DataFrame({
-            "date": dates,
-            "predicted": preds.values,
-            "actual": actual.values,
-        })
+    result = pd.DataFrame({
+        "date": dates,
+        "predicted": preds.values,
+        "actual": actual.values,
+    })
+    # Drop rows with missing values to avoid NaNs propagating through the
+    # metrics calculations. This can occur when the input series contains
+    # gaps or when there is insufficient history for a 7‑day lag.
+    result = result.dropna(subset=["predicted", "actual"]).copy()
+    if result.empty:
+        raise ValueError("No valid data to compute the baseline forecast")
     result["error"] = result["actual"] - result["predicted"]
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()
