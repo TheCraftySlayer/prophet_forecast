@@ -2774,8 +2774,26 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
     result_df.to_csv(output_file, index=False)
     
     logger.info(f"Forecast exported to {output_file}")
-    
+
     return output_file
+
+
+def blend_short_term(forecast: pd.DataFrame, history: pd.DataFrame, weight: float = 0.5) -> pd.DataFrame:
+    """Blend naive and Prophet predictions for short horizons."""
+
+    last_date = history.index.max()
+    blended = forecast.copy()
+    for idx, row in blended.iterrows():
+        if (row["ds"] - last_date).days <= 1:
+            prev_week = row["ds"] - pd.Timedelta(days=7)
+            if prev_week in history.index:
+                naive = history.loc[prev_week, "call_count"]
+                blended.at[idx, "yhat"] = weight * naive + (1 - weight) * row["yhat"]
+                if "yhat_lower" in blended.columns:
+                    blended.at[idx, "yhat_lower"] = weight * naive + (1 - weight) * row["yhat_lower"]
+                if "yhat_upper" in blended.columns:
+                    blended.at[idx, "yhat_upper"] = weight * naive + (1 - weight) * row["yhat_upper"]
+    return blended
 
 
 def evaluate_prophet_model(
