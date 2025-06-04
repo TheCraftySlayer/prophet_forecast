@@ -77,6 +77,7 @@ from prophet_analysis import (
     build_prophet_kwargs,
     compute_naive_baseline,
     load_time_series,
+    aggregate_hourly_calls,
     export_baseline_forecast,
     export_prophet_forecast,
     monitor_residuals,
@@ -524,7 +525,7 @@ def check_baseline_coverage(config_path: Path) -> None:
     hourly_df = None
     hourly_path = cfg["data"].get("hourly_calls")
     if hourly_path:
-        hourly = load_time_series(Path(hourly_path), metric="call")
+        hourly = aggregate_hourly_calls(Path(hourly_path))
         if not hourly.empty:
             hourly_df = pd.DataFrame({"ds": hourly.index, "y": hourly.values})
     _, metrics, _ = compute_naive_baseline(df, hourly_df=hourly_df)
