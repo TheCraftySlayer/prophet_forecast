@@ -140,11 +140,115 @@ def run_forecast(cfg: dict) -> None:
         if not hourly_path:
             raise ValueError("hourly_calls path required when use_hourly is true")
         periods = cfg["model"].get("hourly_periods", 24 * 7)
-        _, hourly_fcst, daily_fcst = forecast_hourly_to_daily(
+        model, hourly_fcst, daily_fcst = forecast_hourly_to_daily(
             Path(hourly_path), periods=periods
         )
         hourly_fcst.to_csv(out_dir / "hourly_forecast.csv", index=False)
         daily_fcst.to_csv(out_dir / "daily_forecast.csv")
+
+        df_hourly = pd.read_csv(hourly_path)
+        df_hourly["ds"] = pd.to_datetime(df_hourly.iloc[:, 0], format="%m/%d/%Y %H:%M")
+        df_hourly["y"] = df_hourly.iloc[:, 1].astype(float)
+
+        def _evaluate_hourly(df: pd.DataFrame, fcst: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+            joined = pd.concat(
+                [
+                    df.set_index("ds")["y"].resample("D").sum().rename("actual"),
+                    fcst.set_index("ds").resample("D")[["yhat", "yhat_lower", "yhat_upper"]].sum(),
+                ],
+                axis=1,
+            ).dropna()
+            joined["error"] = joined["actual"] - joined["yhat"]
+            joined["abs_error"] = joined["error"].abs()
+            coverage = (
+                (
+                    (joined["actual"] >= joined["yhat_lower"])
+                    & (joined["actual"] <= joined["yhat_upper"])
+                ).mean()
+                * 100
+            )
+            summary = pd.DataFrame(
+                {
+                    "metric": ["MAE", "RMSE", "MAPE", "Coverage"],
+                    "value": [
+                        joined["abs_error"].mean(),
+                        np.sqrt((joined["error"] ** 2).mean()),
+                        100
+                        * np.mean(np.abs(joined["error"] / joined["actual"])),
+                        coverage,
+                    ],
+                }
+            )
+            horizon_rows = []
+            for h in [1, 7, 14]:
+                if len(joined) >= h:
+                    sub = joined.head(h)
+                    horizon_rows.append(
+                        [
+                            h,
+                            sub["abs_error"].mean(),
+                            np.sqrt((sub["error"] ** 2).mean()),
+                            100 * np.mean(np.abs(sub["error"] / sub["actual"])),
+                        ]
+                    )
+            horizon_df = pd.DataFrame(
+                horizon_rows, columns=["horizon_days", "MAE", "RMSE", "MAPE"]
+            )
+            return summary, horizon_df
+
+        summary, horizon_table = _evaluate_hourly(df_hourly, hourly_fcst)
+        write_summary(summary, out_dir / "summary.csv")
+        write_summary(horizon_table, out_dir / "horizon_metrics.csv")
+
+        daily_actual = df_hourly.set_index("ds")["y"].resample("D").sum()
+        df_daily = pd.DataFrame({"call_count": daily_actual})
+        export_baseline_forecast(df_daily, out_dir)
+
+        def _ensure_mape(table: pd.DataFrame, obs: str = "actual", pred: str = "yhat"):
+            if "MAPE" not in table.columns and {obs, pred}.issubset(table.columns):
+                mape = 100 * np.mean(np.abs((table[obs] - table[pred]) / table[obs]))
+                table["MAPE"] = mape
+
+        _ensure_mape(horizon_table)
+
+        baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(df_daily)
+        _ensure_mape(baseline_horizon, obs="call_count", pred="predicted")
+        cov_b = baseline_metrics.loc[
+            baseline_metrics["metric"] == "Coverage", "value"
+        ].iloc[0]
+        metrics_baseline = baseline_horizon.rename(
+            columns={"horizon_days": "horizon"}
+        ).copy()
+        metrics_baseline["model"] = "baseline"
+        metrics_baseline["coverage"] = cov_b
+
+        coverage = summary.loc[summary["metric"] == "Coverage", "value"].iloc[0]
+        prophet_metrics = horizon_table.rename(columns={"horizon_days": "horizon"}).copy()
+        prophet_metrics["model"] = "prophet"
+        prophet_metrics["coverage"] = coverage
+
+        wanted = ["model", "horizon", "MAE", "RMSE", "MAPE", "coverage"]
+        metrics_baseline = metrics_baseline[[c for c in wanted if c in metrics_baseline]]
+        prophet_metrics = prophet_metrics[[c for c in wanted if c in prophet_metrics]]
+
+        metrics = pd.concat([metrics_baseline, prophet_metrics], ignore_index=True)
+        write_summary(metrics, out_dir / "metrics.csv")
+
+        if cfg["model"].get("weekly_incremental") and model_to_json is not None:
+            with open(base_out / "latest_model.json", "w") as f:
+                f.write(model_to_json(model))
+
+        commit = safe_git_hash()
+        checksums = {
+            "calls": _checksum(call_path),
+            "visitors": _checksum(visit_path),
+            "queries": _checksum(chat_path),
+        }
+        logger.info("Run %s", run_id)
+        if commit is not None:
+            logger.info("commit: %s", commit)
+        logger.info("checksums: %s", json.dumps(checksums))
+        logger.info("params: %s", json.dumps({"hourly_periods": periods}))
         return
 
     df, regressors = prepare_data(
