@@ -1,17 +1,24 @@
 start_date,end_date,event,feature
-2023-11-01,,2023 property-tax bills mailed county-wide,bill_mailed
-2023-11-10,,First-half 2023 payment due,first_half_due
-2023-12-10,,Interest/penalties start on unpaid first-half,late_fee_start
-2024-04-01,,2024 Notices of Value (NOV) mailed on schedule,nov_mailed
-2024-04-01,2024-05-01,Statutory protest window,days_to_protest_deadline
-2024-07-19,,Global IT outage blocked public tax portals,portal_down
-2024-07-31,,Emergency bernco.gov outage (CenturyLink repair),site_outage
-2024-10-31,,Assessor public briefing on Constitutional Amendment 2,amendment_briefing
-2024-11-01,,2024 tax bills mailed,bill_mailed
-2025-03-20,,HB 47 signed; veteran exemption increased to $10k,hb47_effective
-2025-04-03,,Value-Freeze program announcement (seniors/disabled),freeze_launch
-2025-04-15,,Assessor adds 8 certified appraisers,agents_available
-2025-04-23,,KOAT prime-time segment amplifying the freeze program,media_spot
-2025-05-01,,2025 NOV mailed (30-day delay vs statutory),nov_mailed
-2025-05-01,2025-06-02,Protest window (delayed),days_to_protest_deadline
-2024-05-10,,Second-half 2023 payment due,second_half_due
+11/1/2023,,2023 property-tax bills mailed county-wide,bill_mailed
+11/10/2023,,First-half 2023 payment due,first_half_due
+12/10/2023,,Interest/penalties start on unpaid first-half,late_fee_start
+4/1/2024,,2024 Notices of Value (NOV) mailed on schedule,nov_mailed
+4/1/2024,5/1/2024,Statutory protest window,days_to_protest_deadline
+7/19/2024,,Global IT outage blocked public tax portals,portal_down
+7/31/2024,,Emergency bernco.gov outage (CenturyLink repair),site_outage
+10/31/2024,,Assessor public briefing on Constitutional Amendment 2,amendment_briefing
+11/1/2024,,2024 tax bills mailed,bill_mailed
+3/20/2025,,HB 47 signed; veteran exemption increased to $10k,hb47_effective
+4/3/2025,,Value-Freeze program announcement (seniors/disabled),freeze_launch
+4/15/2025,,Assessor adds 8 certified appraisers,agents_available
+4/23/2025,,KOAT prime-time segment amplifying the freeze program,media_spot
+5/1/2025,,2025 NOV mailed (30-day delay vs statutory),nov_mailed
+5/1/2025,6/2/2025,Protest window (delayed),days_to_protest_deadline
+5/10/2024,,Second-half 2023 payment due,second_half_due
+11/1/2024,,2024 property‑tax bills mailed county‑wide,bill_mailed
+11/10/2024,,First‑half 2024 payment due,first_half_due
+12/10/2024,,Interest/penalties start on unpaid first‑half,late_fee_start
+4/10/2025,,Second‑half 2024 payment due,second_half_due
+5/10/2025,,Interest/penalties start on unpaid second‑half,late_fee_second
+5/1/2025,,2025 Notices of Value (NOV) mailed (delayed schedule),nov_mailed
+5/1/2025,6/2/2025,Protest/appeal window for 2025 NOV (delayed schedule),protest_window
