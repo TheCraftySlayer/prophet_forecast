@@ -2545,9 +2545,9 @@ def compute_naive_baseline(
     df : DataFrame
         Source data with a ``call_count`` column and a DatetimeIndex.
     hourly_df : DataFrame, optional
-        Hourly call data with ``ds`` and ``y`` columns. When provided the
-        baseline is computed per hour using a 168 hour lag and aggregated to
-        daily totals.
+        Hourly call data with ``ds`` and ``y`` columns. Missing hours are
+        inserted so the series forms a regular hourly grid. The baseline is then
+        computed per hour using a 168‑hour lag and aggregated to daily totals.
 
     Returns
     -------
@@ -2572,7 +2572,12 @@ def compute_naive_baseline(
         h["ds"] = pd.to_datetime(h.iloc[:, 0])
         h["y"] = h.iloc[:, 1].astype(float)
         h = h.sort_values("ds").set_index("ds")
-        preds_h = h["y"].shift(168).iloc[-336:]
+        # Fill any missing hours to ensure a uniform 24x7 grid then shift
+        # by exactly seven days so each prediction uses the same hour last
+        # week.  Using a time-based shift avoids misalignment when the data
+        # does not contain every recorded hour.
+        h = h.asfreq("h")
+        preds_h = h["y"].shift(freq="7D").iloc[-336:]
         actual_h = h["y"].iloc[-336:]
         hourly = pd.DataFrame({
             "ds": preds_h.index,
@@ -2584,7 +2589,7 @@ def compute_naive_baseline(
             & (hourly["ds"].dt.hour >= 8)
             & (hourly["ds"].dt.hour < 17)
         )
-        hourly = hourly[mask]
+        hourly = hourly[mask].dropna(subset=["predicted", "actual"])
         daily = hourly.set_index("ds").resample("D")[["predicted", "actual"]].sum()
         result = daily.reset_index().rename(columns={"ds": "date"})
     else:
