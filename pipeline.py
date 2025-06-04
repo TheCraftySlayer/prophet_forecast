@@ -73,6 +73,7 @@ from prophet_analysis import (
     compute_naive_baseline,
     export_baseline_forecast,
     export_prophet_forecast,
+    monitor_residuals,
     blend_short_term,
     model_to_json,
     write_summary,
@@ -355,7 +356,28 @@ def run_forecast(cfg: dict) -> None:
     write_summary(horizon_table, out_dir / "horizon_metrics.csv")
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
     forecast_blend = blend_short_term(forecast, df)
-    export_prophet_forecast(model, forecast_blend, df, out_dir, scaler=None)
+    pred_path, pred_df = export_prophet_forecast(
+        model, forecast_blend, df, out_dir, scaler=None
+    )
+    flagged = monitor_residuals(pred_df)
+    if not flagged.empty:
+        logger.warning(
+            "Residuals exceeded threshold on %s", 
+            ", ".join(flagged['ds'].dt.strftime('%Y-%m-%d'))
+        )
+        logger.info("Retraining model due to residual spike")
+        model, forecast, future = train_prophet_model(
+            prophet_df,
+            holidays,
+            regressors,
+            future_periods=30,
+            model_params=model_params,
+            prophet_kwargs=prophet_kwargs,
+            likelihood=likelihood,
+            transform=cfg["model"].get("transform", "log"),
+        )
+        forecast_blend = blend_short_term(forecast, df)
+        export_prophet_forecast(model, forecast_blend, df, out_dir, scaler=None)
     export_baseline_forecast(df, out_dir)
 
  # ------------------------------------------------------------------
