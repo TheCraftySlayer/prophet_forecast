@@ -23,10 +23,10 @@ def _hourly_mae_by_hour(df: pd.DataFrame, fcst: pd.DataFrame) -> pd.DataFrame:
 
 def hourly_stats(df: pd.DataFrame) -> pd.DataFrame:
     """Return mean and standard deviation for each weekday/hour pair."""
-    grouped = df.groupby([df["ds"].dt.dayofweek, df["ds"].dt.hour])["y"]
-    stats = grouped.agg(mean="mean", std="std").reset_index()
-    stats.columns = ["dow", "hour", "mean", "std"]
-    return stats
+    dow = df["ds"].dt.dayofweek.rename("dow")
+    hour = df["ds"].dt.hour.rename("hour")
+    grouped = df.groupby([dow, hour])["y"]
+    return grouped.agg(mean="mean", std="std").reset_index()
 
 
 try:
