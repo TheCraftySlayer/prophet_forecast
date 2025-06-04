@@ -19,6 +19,8 @@ model:
   weekly_seasonality: false
   yearly_seasonality: auto
   daily_seasonality: false
+  use_hourly: false
+  hourly_periods: 168
   likelihood: auto
   weekly_incremental: true
   capacity: 1000

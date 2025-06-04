@@ -76,6 +76,7 @@ from prophet_analysis import (
     write_summary,
     select_likelihood,
 )
+from hourly_analysis import forecast_hourly_to_daily
 
 
 def configure_logging(log_file: Path) -> None:
@@ -133,6 +134,18 @@ def run_forecast(cfg: dict) -> None:
     out_dir.mkdir(exist_ok=True)
 
     configure_logging(out_dir / "cmdstan.log")
+
+    if cfg.get("model", {}).get("use_hourly"):
+        hourly_path = cfg["data"].get("hourly_calls")
+        if not hourly_path:
+            raise ValueError("hourly_calls path required when use_hourly is true")
+        periods = cfg["model"].get("hourly_periods", 24 * 7)
+        _, hourly_fcst, daily_fcst = forecast_hourly_to_daily(
+            Path(hourly_path), periods=periods
+        )
+        hourly_fcst.to_csv(out_dir / "hourly_forecast.csv", index=False)
+        daily_fcst.to_csv(out_dir / "daily_forecast.csv")
+        return
 
     df, regressors = prepare_data(
         call_path,
