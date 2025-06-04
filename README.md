@@ -74,6 +74,13 @@ python pipeline.py config.yaml            # Windows
 python pipeline.py config.yaml                   # Unix
 ```
 
+Use `--check-baseline-coverage` to verify the naive baseline coverage before
+running the model:
+
+```bash
+python pipeline.py config.yaml --check-baseline-coverage
+```
+
 The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
 parameters, including input and output paths, are read from `config.yaml`.
 
