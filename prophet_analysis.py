@@ -2531,7 +2531,9 @@ def analyze_press_release_impact_prophet(forecast, output_dir):
     return press_releases
 
 
-def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def compute_naive_baseline(
+    df: pd.DataFrame, hourly_df: pd.DataFrame | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Generate a seasonal naive forecast for the last 14 days and metrics.
 
     The baseline now predicts each day using the call volume from the same
@@ -2542,6 +2544,10 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     ----------
     df : DataFrame
         Source data with a ``call_count`` column and a DatetimeIndex.
+    hourly_df : DataFrame, optional
+        Hourly call data with ``ds`` and ``y`` columns. When provided the
+        baseline is computed per hour using a 168 hour lag and aggregated to
+        daily totals.
 
     Returns
     -------
@@ -2559,16 +2565,39 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             "At least 21 days of data are required to compute the baseline"
         )
 
-    recent = df_sorted["call_count"]
-    preds = recent.shift(7).iloc[-14:]
-    actual = recent.iloc[-14:]
-    dates = recent.index[-14:]
+    if hourly_df is not None and not hourly_df.empty:
+        h = hourly_df.copy()
+        if "ds" not in h.columns:
+            h.columns = ["ds", "y"]
+        h["ds"] = pd.to_datetime(h.iloc[:, 0])
+        h["y"] = h.iloc[:, 1].astype(float)
+        h = h.sort_values("ds").set_index("ds")
+        preds_h = h["y"].shift(168).iloc[-336:]
+        actual_h = h["y"].iloc[-336:]
+        hourly = pd.DataFrame({
+            "ds": preds_h.index,
+            "predicted": preds_h.values,
+            "actual": actual_h.values,
+        })
+        mask = (
+            (hourly["ds"].dt.weekday < 5)
+            & (hourly["ds"].dt.hour >= 8)
+            & (hourly["ds"].dt.hour < 17)
+        )
+        hourly = hourly[mask]
+        daily = hourly.set_index("ds").resample("D")[["predicted", "actual"]].sum()
+        result = daily.reset_index().rename(columns={"ds": "date"})
+    else:
+        recent = df_sorted["call_count"]
+        preds = recent.shift(7).iloc[-14:]
+        actual = recent.iloc[-14:]
+        dates = recent.index[-14:]
 
-    result = pd.DataFrame({
-        "date": dates,
-        "predicted": preds.values,
-        "actual": actual.values,
-    })
+        result = pd.DataFrame({
+            "date": dates,
+            "predicted": preds.values,
+            "actual": actual.values,
+        })
     result["error"] = result["actual"] - result["predicted"]
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()

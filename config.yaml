@@ -15,7 +15,7 @@ model:
   growth: linear
   transform: log
   mcmc_samples: 0
-  interval_width: 0.9
+  interval_width: 0.83
   weekly_seasonality: auto
   yearly_seasonality: auto
   daily_seasonality: false

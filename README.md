@@ -133,6 +133,10 @@ python hourly_analysis.py hourly_call_data.csv --periods 168 --out hourly_foreca
 The script writes the raw hourly forecast to ``hourly_forecast.csv`` and the
 aggregated daily totals to ``daily_forecast.csv``.
 
+Forecasting assumes the call centre only operates Monday–Friday between
+08:00 and 17:00. Any hourly records outside this window are removed prior to
+training and evaluation so metrics reflect normal operating hours.
+
 ### Data exclusions
 
 The preprocessing step now creates a continuous daily index. Weekend rows are
@@ -155,10 +159,11 @@ scale.
 The results, including forecasts and plots, will be saved in the specified output directory.
 The exported CSV file (`prophet_call_predictions_<hash>.csv`) now includes
 predictions for the previous 14 business days along with a forecast for the next
-business day. A seasonal naive baseline forecast using the call volume from the
-same weekday in the prior week and the corresponding MAE, RMSE and Poisson
-deviance metrics are also included. The report additionally lists the predicted call volume for
-the upcoming business day in a dedicated sheet.
+business day. A seasonal naive baseline forecast now uses call volume from the
+same hour and weekday one week earlier, aggregated to daily totals. The
+corresponding MAE, RMSE and Poisson deviance metrics are also included. The
+report additionally lists the predicted call volume for the upcoming business
+day in a dedicated sheet.
 
 Each run logs the training window, any parameter overrides and a SHA1 hash of the
 serialized model so forecasts can be exactly reproduced.

@@ -269,7 +269,10 @@ def run_forecast(cfg: dict) -> None:
 
         _ensure_smape(horizon_table)
 
-        baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(df_daily)
+        baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(
+            df_daily,
+            hourly_df=df_hourly[["ds", "y"]],
+        )
         _ensure_smape(baseline_horizon, obs="call_count", pred="predicted")
         cov_b = baseline_metrics.loc[
             baseline_metrics["metric"] == "Coverage", "value"
