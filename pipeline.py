@@ -189,18 +189,13 @@ def run_forecast(cfg: dict) -> None:
                 * 100
             )
             zero_acc = ((joined["actual"] == 0) == (joined["yhat"] < 0.5)).mean() * 100
-            smape = (
-                2
-                * joined["abs_error"]
-                /
-                (joined["actual"].abs() + joined["yhat"].abs())
-            ).replace([np.inf, -np.inf], np.nan).mean() * 100
+            wape = joined["abs_error"].sum() / joined["actual"].abs().sum() * 100
             summary = pd.DataFrame(
                 {
                     "metric": [
                         "MAE",
                         "RMSE",
-                        "sMAPE",
+                        "WAPE",
                         "Coverage",
                         "ZeroAcc",
                         "MAE_pct",
@@ -209,7 +204,7 @@ def run_forecast(cfg: dict) -> None:
                     "value": [
                         joined["abs_error"].mean(),
                         np.sqrt((joined["error"] ** 2).mean()),
-                        smape,
+                        wape,
                         coverage,
                         zero_acc,
                         float("nan"),  # filled later
@@ -237,18 +232,12 @@ def run_forecast(cfg: dict) -> None:
                             h,
                             sub["abs_error"].mean(),
                             np.sqrt((sub["error"] ** 2).mean()),
-                            (
-                                2
-                                * sub["abs_error"]
-                                /
-                                (sub["actual"].abs() + sub["yhat"].abs())
-                            ).replace([np.inf, -np.inf], np.nan).mean()
-                            * 100,
+                            sub["abs_error"].sum() / sub["actual"].abs().sum() * 100,
                             ((sub["actual"] == 0) == (sub["yhat"] < 0.5)).mean() * 100,
                         ]
                     )
             horizon_df = pd.DataFrame(
-                horizon_rows, columns=["horizon_days", "MAE", "RMSE", "sMAPE", "ZeroAcc"]
+                horizon_rows, columns=["horizon_days", "MAE", "RMSE", "WAPE", "ZeroAcc"]
             )
             return summary, horizon_df
 
@@ -260,23 +249,17 @@ def run_forecast(cfg: dict) -> None:
         df_daily = pd.DataFrame({"call_count": daily_actual})
         export_baseline_forecast(df_daily, out_dir)
 
-        def _ensure_smape(table: pd.DataFrame, obs: str = "actual", pred: str = "yhat"):
-            if "sMAPE" not in table.columns and {obs, pred}.issubset(table.columns):
-                smape = (
-                    2
-                    * (table[obs] - table[pred]).abs()
-                    /
-                    (table[obs].abs() + table[pred].abs())
-                ).replace([np.inf, -np.inf], np.nan).mean() * 100
-                table["sMAPE"] = smape
-
-        _ensure_smape(horizon_table)
+        def _ensure_wape(table: pd.DataFrame, obs: str = "actual", pred: str = "yhat"):
+            if "WAPE" not in table.columns and {obs, pred}.issubset(table.columns):
+                wape = (table[obs] - table[pred]).abs().sum() / table[obs].abs().sum() * 100
+                table["WAPE"] = wape
+        _ensure_wape(horizon_table)
 
         baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(
             df_daily,
             hourly_df=df_hourly[["ds", "y"]],
         )
-        _ensure_smape(baseline_horizon, obs="call_count", pred="predicted")
+        _ensure_wape(baseline_horizon, obs="call_count", pred="predicted")
         cov_b = baseline_metrics.loc[
             baseline_metrics["metric"] == "Coverage", "value"
         ].iloc[0]
@@ -291,7 +274,7 @@ def run_forecast(cfg: dict) -> None:
         prophet_metrics["model"] = "prophet"
         prophet_metrics["coverage"] = coverage
 
-        wanted = ["model", "horizon", "MAE", "RMSE", "sMAPE", "coverage", "ZeroAcc"]
+        wanted = ["model", "horizon", "MAE", "RMSE", "WAPE", "coverage", "ZeroAcc"]
         metrics_baseline = metrics_baseline[[c for c in wanted if c in metrics_baseline]]
         prophet_metrics = prophet_metrics[[c for c in wanted if c in prophet_metrics]]
 
@@ -448,27 +431,22 @@ def run_forecast(cfg: dict) -> None:
     export_baseline_forecast(df, out_dir)
 
  # ------------------------------------------------------------------
-    # Guarantee that both result-tables contain a “sMAPE” column
+    # Guarantee that both result-tables contain a "WAPE" column
     # ------------------------------------------------------------------
 
-    def _ensure_smape(table: pd.DataFrame, obs: str = "y", pred: str = "yhat"):
+    def _ensure_wape(table: pd.DataFrame, obs: str = "y", pred: str = "yhat"):
         """
-        Add a constant sMAPE column (one value per table) if it's missing.
-        The helpers upstream sometimes don’t compute sMAPE.
+        Add a constant WAPE column (one value per table) if it's missing.
+        The helpers upstream sometimes don’t compute WAPE.
         """
-        if "sMAPE" not in table.columns and {obs, pred}.issubset(table.columns):
-            smape = (
-                2
-                * (table[obs] - table[pred]).abs()
-                /
-                (table[obs].abs() + table[pred].abs())
-            ).replace([np.inf, -np.inf], np.nan).mean() * 100
-            table["sMAPE"] = smape
+        if "WAPE" not in table.columns and {obs, pred}.issubset(table.columns):
+            wape = (table[obs] - table[pred]).abs().sum() / table[obs].abs().sum() * 100
+            table["WAPE"] = wape
 
-    _ensure_smape(horizon_table)
+    _ensure_wape(horizon_table)
 
     baseline_df, baseline_metrics, baseline_horizon = compute_naive_baseline(df)
-    _ensure_smape(baseline_horizon)
+    _ensure_wape(baseline_horizon)
     cov_b = baseline_metrics.loc[
         baseline_metrics["metric"] == "Coverage", "value"
     ].iloc[0]
@@ -483,7 +461,7 @@ def run_forecast(cfg: dict) -> None:
     prophet_metrics["model"] = "prophet"
     prophet_metrics["coverage"] = coverage
 
-    wanted = ["model", "horizon", "MAE", "RMSE", "sMAPE", "coverage", "ZeroAcc"]
+    wanted = ["model", "horizon", "MAE", "RMSE", "WAPE", "coverage", "ZeroAcc"]
     metrics_baseline = metrics_baseline[[c for c in wanted if c in metrics_baseline]]
     prophet_metrics  = prophet_metrics [[c for c in wanted if c in prophet_metrics ]]
 
