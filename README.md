@@ -137,7 +137,9 @@ aggregated daily totals to ``daily_forecast.csv``.
 
 The preprocessing step now creates a continuous daily index. Weekend rows are
 inserted with zero call, visit and chatbot counts. Any zero values on weekdays
-are flagged and treated as missing so they can be interpolated. Call volumes
+are flagged and treated as missing so they can be interpolated. Zero-call days
+are evaluated separately using a hurdle-style metric so they do not distort
+percentage errors. Call volumes
 above the 99.5th percentile are winsorized to
 reduce the impact of extreme spikes. Dummy variables mark periods for notice
 mail-outs, assessment deadlines, a May 2025 campaign and nearby county

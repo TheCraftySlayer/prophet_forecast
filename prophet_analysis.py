@@ -2588,11 +2588,14 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         .mean()
         * 100
     )
+    zero_actual = result["actual"] == 0
+    zero_pred = result["predicted"] < 0.5
+    zero_acc = (zero_actual == zero_pred).mean() * 100
 
     metrics = pd.DataFrame(
         {
-            "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage"],
-            "value": [mae, rmse, smape, pdev, coverage],
+            "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage", "ZeroAcc"],
+            "value": [mae, rmse, smape, pdev, coverage, zero_acc],
         }
     )
 
@@ -2609,9 +2612,10 @@ def compute_naive_baseline(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
                 (sub["actual"].abs() + sub["predicted"].abs())
             ).replace([np.inf, -np.inf], np.nan).mean() * 100
             pdev_h = _mean_poisson_deviance(sub["actual"], sub["predicted"])
-            horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h])
+            zero_h = ((sub["actual"] == 0) == (sub["predicted"] < 0.5)).mean() * 100
+            horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h, zero_h])
     horizon_df = pd.DataFrame(
-        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "sMAPE", "Poisson"]
+        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "sMAPE", "Poisson", "ZeroAcc"]
     )
 
 
@@ -2992,6 +2996,9 @@ def evaluate_prophet_model(
         ((df_cv['y'] >= df_cv['yhat_lower']) & (df_cv['y'] <= df_cv['yhat_upper'])).mean() * 100
         if {'yhat_lower', 'yhat_upper'} <= set(df_cv.columns) else float('nan')
     )
+    zero_actual = df_cv['y'] == 0
+    zero_pred = df_cv['yhat'] < 0.5
+    zero_acc = (zero_actual == zero_pred).mean() * 100
 
     interval_scale = 1.0
     if coverage == coverage and coverage < 95:
@@ -3059,8 +3066,8 @@ def evaluate_prophet_model(
             break
 
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage"],
-        "value":  [mae,  rmse,  smape,  pdev, coverage]
+        "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage", "ZeroAcc"],
+        "value":  [mae,  rmse,  smape,  pdev, coverage, zero_acc]
     })
 
     horizon_rows = []
@@ -3078,9 +3085,10 @@ def evaluate_prophet_model(
             (sub['y'].abs() + sub['yhat'].abs())
         ).replace([np.inf, -np.inf], np.nan).mean() * 100
         pdev_h = _mean_poisson_deviance(sub['y'], sub['yhat'])
-        horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h])
+        zero_h = ((sub['y'] == 0) == (sub['yhat'] < 0.5)).mean() * 100
+        horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h, zero_h])
     horizon_table = pd.DataFrame(
-        horizon_rows, columns=['horizon_days','MAE','RMSE','sMAPE','Poisson']
+        horizon_rows, columns=['horizon_days','MAE','RMSE','sMAPE','Poisson','ZeroAcc']
     )
 
     _check_horizon_escalation(horizon_table)
