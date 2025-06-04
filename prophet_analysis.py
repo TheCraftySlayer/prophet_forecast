@@ -917,9 +917,17 @@ def prepare_data(
     if events is None:
         events = {}
 
-    deadline_dates = pd.date_range(start=idx.min(), end=idx.max(), freq="MS")
-    notice_dates = [
-        pd.Timestamp(year, 3, 1) for year in range(idx.min().year, idx.max().year + 1)
+    deadline_dates = holiday_df.loc[
+        (holiday_df["event"] == "tax_deadline")
+        & (holiday_df["date"] >= idx.min())
+        & (holiday_df["date"] <= idx.max()),
+        "date",
+    ]
+    notice_dates = holiday_df.loc[
+        (holiday_df["event"] == "notice_mailout")
+        & (holiday_df["date"] >= idx.min())
+        & (holiday_df["date"] <= idx.max()),
+        "date",
     ]
     df['county_holiday_flag'] = df.index.isin(holiday_dates).astype(int)
     df['deadline_flag'] = 0
