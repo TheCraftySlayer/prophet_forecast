@@ -88,6 +88,11 @@ data:
   queries: mydata.db:queries
 ```
 
+To model at the hourly level set `model.use_hourly: true` in the YAML and
+provide the `hourly_calls` path. The pipeline will forecast the hourly series
+and aggregate the results to daily totals. Adjust `model.hourly_periods` to
+control how many hours to predict.
+
 The pipeline detects the `.db` extension and automatically queries the database
 instead of reading CSV files.
 
@@ -110,6 +115,23 @@ This merges the raw files on a business-day index and adds dummy flags for
 holidays, notice mail-outs and the May 2025 campaign period. An accompanying
 `assessor_events.csv` lists additional policy and outage dates that can be
 used for further feature engineering.
+
+### Hourly forecasting
+
+`hourly_analysis.py` provides a lightweight helper to forecast call volume on an
+hourly basis and then sum the predictions to daily totals. It falls back to a
+naive mean forecast when the real ``prophet`` package is unavailable so the unit
+tests still run with the bundled stubs.
+
+Alternatively, the YAML-driven pipeline can perform the same operation when
+`model.use_hourly` is enabled.
+
+```bash
+python hourly_analysis.py hourly_call_data.csv --periods 168 --out hourly_forecast.csv
+```
+
+The script writes the raw hourly forecast to ``hourly_forecast.csv`` and the
+aggregated daily totals to ``daily_forecast.csv``.
 
 ### Data exclusions
 
