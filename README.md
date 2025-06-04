@@ -83,6 +83,7 @@ appropriate tables using a `path.db:table` notation in `config.yaml`:
 ```yaml
 data:
   calls: mydata.db:calls
+  hourly_calls: hourly_call_data.csv  # optional hourly data
   visitors: mydata.db:visits
   queries: mydata.db:queries
 ```
@@ -101,6 +102,8 @@ python data_pipeline.py --config config.yaml --out features.csv
 
 # or specify the CSV files directly
 python data_pipeline.py calls.csv visitors.csv queries.csv --out features.csv
+# optionally include hourly call data to update recent totals
+python data_pipeline.py hourly_call_data.csv visitors.csv queries.csv --out features.csv
 ```
 
 This merges the raw files on a business-day index and adds dummy flags for
