@@ -528,7 +528,12 @@ def check_baseline_coverage(config_path: Path) -> None:
         hourly = aggregate_hourly_calls(Path(hourly_path))
         if not hourly.empty:
             hourly_df = pd.DataFrame({"ds": hourly.index, "y": hourly.values})
-    _, metrics, _ = compute_naive_baseline(df, hourly_df=hourly_df)
+    try:
+        _, metrics, _ = compute_naive_baseline(df, hourly_df=hourly_df)
+    except ValueError as exc:
+        logger.error("Unable to compute baseline coverage: %s", exc)
+        raise SystemExit(1)
+
     coverage = metrics.loc[metrics["metric"] == "Coverage", "value"].iloc[0]
     print(f"Naive baseline coverage: {coverage:.2f}%")
     if coverage < 88 or coverage > 92:
