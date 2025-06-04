@@ -503,7 +503,8 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None, cv_params=None
 
     # Parameter grid
     param_grid = {
-        'changepoint_prior_scale': list(np.logspace(-2, 0, 3)),
+        'changepoint_prior_scale': [0.05, 0.1, 0.2, 0.3, 0.4, 0.5],
+        'n_changepoints': [10, 20, 30, 40],
         'seasonality_prior_scale': list(np.logspace(-2, 0, 3)),
         'holidays_prior_scale': [1.0, 5.0, 10.0],
     }
@@ -528,7 +529,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None, cv_params=None
                 growth='linear',
                 interval_width=0.9,
                 seasonality_mode='additive',
-                n_changepoints=25,
+                n_changepoints=params.get('n_changepoints', 25),
                 changepoint_range=0.9,
                 **prophet_kwargs,
                 **params,
@@ -570,6 +571,7 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None, cv_params=None
         logger.warning("All hyperparameter combinations failed, using defaults")
         return {
             'changepoint_prior_scale': 0.2,
+            'n_changepoints': 25,
             'seasonality_prior_scale': 0.01,
             'holidays_prior_scale': 5,
         }

@@ -163,9 +163,9 @@ the upcoming business day in a dedicated sheet.
 The Prophet model uses additive seasonality with linear growth. Default
 hyperparameters are now tuned for a more flexible trend:
 
-- `changepoint_prior_scale=0.4`
+- `changepoint_prior_scale` searched from 0.05–0.5
 - `changepoint_range=0.9`
-- `n_changepoints=25`
+- `n_changepoints` searched between 10 and 40
 - `holidays_prior_scale=5`
 - `seasonality_prior_scale=0.01`
 - `uncertainty_samples=300`
@@ -175,10 +175,10 @@ hyperparameters are now tuned for a more flexible trend:
 - `weekly_seasonality=false` and a custom weekly component with `fourier_order=5`
 - `capacity` sets the logistic growth cap (defaults to 110% of training max)
 
-Hyperparameter tuning searches across changepoint, seasonality and holiday prior
-scales using Prophet's rolling cross‑validation to reduce wall time. The grid
-helps avoid under‑ or over‑fitting and targets an MAE no greater than 62 and a
-sMAPE below 32%.
+Hyperparameter tuning relies on rolling cross‑validation. The grid explores
+changepoint scales from 0.05–0.5 and between 10 and 40 changepoints alongside
+the seasonality and holiday priors. This helps avoid under‑ or over‑fitting and
+targets an MAE no greater than 62 with sMAPE under 32%.
 
 You can modify these settings in `config.yaml` if desired. Event windows such as
 campaign dates, policy start and any explicit changepoints also live in the
