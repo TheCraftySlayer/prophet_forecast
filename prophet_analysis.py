@@ -562,14 +562,12 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None, cv_params=None
             else:
                 metrics_df = None
                 mae = np.mean(np.abs(df_cv['y'] - df_cv['yhat']))
-            smape = (
-                2
-                * np.abs(df_cv['y'] - df_cv['yhat'])
-                /
-                (df_cv['y'].abs() + df_cv['yhat'].abs())
-            ).replace([np.inf, -np.inf], np.nan).mean() * 100
-            logger.info("→ MAE %.2f | sMAPE %.2f", mae, smape)
-            results.append((mae, smape, params))
+            wape = (
+                np.abs(df_cv['y'] - df_cv['yhat']).sum()
+                / df_cv['y'].abs().sum()
+            ) * 100
+            logger.info("→ MAE %.2f | WAPE %.2f", mae, wape)
+            results.append((mae, wape, params))
         except Exception as e:
             logger.warning("Error with hyperparameter combination %s: %s", params, str(e))
 
@@ -582,14 +580,14 @@ def tune_prophet_hyperparameters(prophet_df, prophet_kwargs=None, cv_params=None
             'holidays_prior_scale': 5,
         }
 
-    best_mae, best_smape, best_params = min(results, key=lambda r: r[0])
-    if best_mae <= 62 and best_smape <= 32:
-        logger.info("Best parameters meet target metrics: MAE %.2f, sMAPE %.2f", best_mae, best_smape)
+    best_mae, best_wape, best_params = min(results, key=lambda r: r[0])
+    if best_mae <= 62 and best_wape <= 32:
+        logger.info("Best parameters meet target metrics: MAE %.2f, WAPE %.2f", best_mae, best_wape)
     else:
         logger.warning(
-            "Best parameters did not meet target metrics: MAE %.2f, sMAPE %.2f",
+            "Best parameters did not meet target metrics: MAE %.2f, WAPE %.2f",
             best_mae,
-            best_smape,
+            best_wape,
         )
 
     logger.info("Best parameters found: %s", best_params)
@@ -2620,12 +2618,7 @@ def compute_naive_baseline(
     result["abs_error"] = result["error"].abs()
     mae = result["abs_error"].mean()
     rmse = np.sqrt((result["error"] ** 2).mean())
-    smape = (
-        2
-        * result["abs_error"]
-        /
-        (result["actual"].abs() + result["predicted"].abs())
-    ).replace([np.inf, -np.inf], np.nan).mean() * 100
+    wape = result["abs_error"].sum() / result["actual"].abs().sum() * 100
     pdev = _mean_poisson_deviance(result["actual"], result["predicted"])
 
     resid_std = result["error"].std(ddof=0)
@@ -2642,8 +2635,8 @@ def compute_naive_baseline(
 
     metrics = pd.DataFrame(
         {
-            "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage", "ZeroAcc"],
-            "value": [mae, rmse, smape, pdev, coverage, zero_acc],
+            "metric": ["MAE", "RMSE", "WAPE", "Poisson", "Coverage", "ZeroAcc"],
+            "value": [mae, rmse, wape, pdev, coverage, zero_acc],
         }
     )
 
@@ -2653,21 +2646,38 @@ def compute_naive_baseline(
             sub = result.head(h)
             mae_h = sub["abs_error"].mean()
             rmse_h = np.sqrt((sub["error"] ** 2).mean())
-            smape_h = (
-                2
-                * sub["abs_error"]
-                /
-                (sub["actual"].abs() + sub["predicted"].abs())
-            ).replace([np.inf, -np.inf], np.nan).mean() * 100
+            wape_h = sub["abs_error"].sum() / sub["actual"].abs().sum() * 100
             pdev_h = _mean_poisson_deviance(sub["actual"], sub["predicted"])
             zero_h = ((sub["actual"] == 0) == (sub["predicted"] < 0.5)).mean() * 100
-            horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h, zero_h])
+            horizon_rows.append([h, mae_h, rmse_h, wape_h, pdev_h, zero_h])
     horizon_df = pd.DataFrame(
-        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "sMAPE", "Poisson", "ZeroAcc"]
+        horizon_rows, columns=["horizon_days", "MAE", "RMSE", "WAPE", "Poisson", "ZeroAcc"]
     )
 
 
     return result, metrics, horizon_df
+
+
+def compute_interval_accuracy(path: Path) -> pd.DataFrame:
+    """Return MAE, RMSE and WAPE for consecutive-interval forecasts.
+
+    The CSV at ``path`` must contain a timestamp column followed by the actual
+    call count. Accuracy is computed against a naive persistence forecast using
+    the previous interval's value.
+    """
+
+    df = pd.read_csv(path)
+    df["ds"] = pd.to_datetime(df.iloc[:, 0])
+    df["y"] = df.iloc[:, 1].astype(float)
+    df = df.sort_values("ds")
+    df["pred"] = df["y"].shift(1)
+    df = df.dropna()
+    error = df["y"] - df["pred"]
+    abs_error = error.abs()
+    mae = abs_error.mean()
+    rmse = np.sqrt((error ** 2).mean())
+    wape = abs_error.sum() / df["y"].abs().sum() * 100
+    return pd.DataFrame({"metric": ["MAE", "RMSE", "WAPE"], "value": [mae, rmse, wape]})
 
 
 def write_summary(df: pd.DataFrame, path: Path) -> Path:
@@ -3062,12 +3072,10 @@ def evaluate_prophet_model(
 
     mae  = metrics_df['mae' ].mean() if metrics_df is not None and 'mae'  in metrics_df else float('nan')
     rmse = metrics_df['rmse'].mean() if metrics_df is not None and 'rmse' in metrics_df else float('nan')
-    smape = (
-        2
-        * np.abs(df_cv['y'] - df_cv['yhat'])
-        /
-        (df_cv['y'].abs() + df_cv['yhat'].abs())
-    ).replace([np.inf, -np.inf], np.nan).mean() * 100
+    wape = (
+        np.abs(df_cv['y'] - df_cv['yhat']).sum()
+        / df_cv['y'].abs().sum()
+    ) * 100
     pdev = _mean_poisson_deviance(df_cv['y'], df_cv['yhat'])
 
     coverage = (
@@ -3098,7 +3106,7 @@ def evaluate_prophet_model(
 
     logger.info(
         f"Cross‑validation →  MAE {mae:.2f} | RMSE {rmse:.2f} | "
-        f"sMAPE {smape:.2f} | Poisson {pdev:.2f} | "
+        f"WAPE {wape:.2f} | Poisson {pdev:.2f} | "
         f"Coverage {coverage if coverage==coverage else 'N/A'}%"
     )
 
@@ -3144,8 +3152,8 @@ def evaluate_prophet_model(
             break
 
     summary = pd.DataFrame({
-        "metric": ["MAE", "RMSE", "sMAPE", "Poisson", "Coverage", "ZeroAcc"],
-        "value":  [mae,  rmse,  smape,  pdev, coverage, zero_acc]
+        "metric": ["MAE", "RMSE", "WAPE", "Poisson", "Coverage", "ZeroAcc"],
+        "value":  [mae,  rmse,  wape,  pdev, coverage, zero_acc]
     })
 
     horizon_rows = []
@@ -3156,17 +3164,15 @@ def evaluate_prophet_model(
             continue
         mae_h = np.mean(np.abs(sub['y'] - sub['yhat']))
         rmse_h = np.sqrt(mean_squared_error(sub['y'], sub['yhat']))
-        smape_h = (
-            2
-            * np.abs(sub['y'] - sub['yhat'])
-            /
-            (sub['y'].abs() + sub['yhat'].abs())
-        ).replace([np.inf, -np.inf], np.nan).mean() * 100
+        wape_h = (
+            np.abs(sub['y'] - sub['yhat']).sum()
+            / sub['y'].abs().sum()
+        ) * 100
         pdev_h = _mean_poisson_deviance(sub['y'], sub['yhat'])
         zero_h = ((sub['y'] == 0) == (sub['yhat'] < 0.5)).mean() * 100
-        horizon_rows.append([h, mae_h, rmse_h, smape_h, pdev_h, zero_h])
+        horizon_rows.append([h, mae_h, rmse_h, wape_h, pdev_h, zero_h])
     horizon_table = pd.DataFrame(
-        horizon_rows, columns=['horizon_days','MAE','RMSE','sMAPE','Poisson','ZeroAcc']
+        horizon_rows, columns=['horizon_days','MAE','RMSE','WAPE','Poisson','ZeroAcc']
     )
 
     _check_horizon_escalation(horizon_table)

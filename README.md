@@ -147,6 +147,10 @@ python hourly_analysis.py hourly_call_data.csv --periods 168 --out hourly_foreca
 The script writes the raw hourly forecast to ``hourly_forecast.csv`` and the
 aggregated daily totals to ``daily_forecast.csv``.
 
+Accuracy at the 15‑ and 30‑minute level can be assessed with
+``compute_interval_accuracy`` which compares consecutive interval predictions
+against the actual counts.
+
 Forecasting assumes the call centre only operates Monday–Friday between
 08:00 and 17:00. Any hourly records outside this window are removed prior to
 training and evaluation so metrics reflect normal operating hours.
@@ -200,9 +204,9 @@ hyperparameters are now tuned for a more flexible trend:
 - `capacity` sets the logistic growth cap (defaults to 110% of training max)
 
 Hyperparameter tuning relies on rolling cross‑validation. The grid explores
-changepoint scales from 0.05–0.5 and between 10 and 40 changepoints alongside
-the seasonality and holiday priors. This helps avoid under‑ or over‑fitting and
-targets an MAE no greater than 62 with sMAPE under 32%.
+ changepoint scales from 0.05–0.5 and between 10 and 40 changepoints alongside
+ the seasonality and holiday priors. This helps avoid under‑ or over‑fitting and
+ targets an MAE no greater than 62 with WAPE under 32%.
 
 You can modify these settings in `config.yaml` if desired. Event windows such as
 campaign dates, policy start and any explicit changepoints also live in the
