@@ -41,6 +41,12 @@ def forecast_hourly_to_daily(
     df["ds"] = pd.to_datetime(df.iloc[:, 0], format="%m/%d/%Y %H:%M")
     df["y"] = df.iloc[:, 1].astype(float)
 
+    # ------------------------------------------------------------------
+    # Restrict to open hours: weekdays 08:00-16:59
+    # ------------------------------------------------------------------
+    df = df[df.ds.dt.weekday < 5]
+    df = df[(df.ds.dt.hour >= 8) & (df.ds.dt.hour < 17)]
+
     hourly_metrics = None
 
     if Prophet is not None and hasattr(Prophet, "fit"):
