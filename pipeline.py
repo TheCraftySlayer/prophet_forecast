@@ -262,16 +262,32 @@ def run_forecast(cfg: dict) -> None:
             with open(base_out / "latest_model.json", "w") as f:
                 f.write(model_to_json(model))
 
+        train_window = {
+            "start": df_hourly["ds"].min().strftime("%Y-%m-%d"),
+            "end": df_hourly["ds"].max().strftime("%Y-%m-%d"),
+        }
+        model_hash = None
+        if model_to_json is not None:
+            model_hash = hashlib.sha1(
+                model_to_json(model).encode("utf-8")
+            ).hexdigest()
+
         commit = safe_git_hash()
         checksums = {
             "calls": _checksum(call_path),
             "visitors": _checksum(visit_path),
             "queries": _checksum(chat_path),
         }
+        overrides = {
+            k: v for k, v in cfg.get("model", {}).items() if k not in {"use_hourly"}
+        }
         logger.info("Run %s", run_id)
         if commit is not None:
             logger.info("commit: %s", commit)
+        logger.info("model_hash: %s", model_hash)
+        logger.info("training_window: %s", json.dumps(train_window))
         logger.info("checksums: %s", json.dumps(checksums))
+        logger.info("overrides: %s", json.dumps(overrides))
         logger.info("params: %s", json.dumps({"hourly_periods": periods}))
         return
 
@@ -435,16 +451,30 @@ def run_forecast(cfg: dict) -> None:
         with open(base_out / "latest_model.json", "w") as f:
             f.write(model_to_json(model))
 
+    train_window = {
+        "start": df.index.min().strftime("%Y-%m-%d"),
+        "end": df.index.max().strftime("%Y-%m-%d"),
+    }
+    model_hash = None
+    if model_to_json is not None:
+        model_hash = hashlib.sha1(model_to_json(model).encode("utf-8")).hexdigest()
+
     commit = safe_git_hash()
     checksums = {
         "calls": _checksum(call_path),
         "visitors": _checksum(visit_path),
         "queries": _checksum(chat_path),
     }
+    overrides = {
+        k: v for k, v in cfg.get("model", {}).items() if k not in {"use_hourly"}
+    }
     logger.info("Run %s", run_id)
     if commit is not None:
         logger.info("commit: %s", commit)
+    logger.info("model_hash: %s", model_hash)
+    logger.info("training_window: %s", json.dumps(train_window))
     logger.info("checksums: %s", json.dumps(checksums))
+    logger.info("overrides: %s", json.dumps(overrides))
     logger.info("params: %s", json.dumps(model_params))
 
 
