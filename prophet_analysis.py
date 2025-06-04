@@ -148,7 +148,12 @@ REGRESSORS = [
     "call_lag3",
     "call_lag7",
     "monday_effect",
+    "deadline_flag",
+    "notice_flag",
+    "county_holiday_flag",
+    "press_release_flag",
     "is_campaign",
+    "spike_flag",
 ]
 
 # Event categories used when encoding assessor events
@@ -1053,7 +1058,10 @@ def prepare_data(
         "monday_effect",
         "deadline_flag",
         "notice_flag",
+        "county_holiday_flag",
+        "press_release_flag",
         "is_campaign",
+        "spike_flag",
     ]
     regressors = regressors[important_regs]
 
@@ -1355,7 +1363,10 @@ def train_prophet_model(
         'monday_effect',
         'notice_flag',
         'deadline_flag',
+        'county_holiday_flag',
+        'press_release_flag',
         'is_campaign',
+        'spike_flag',
     ]
 
     important_regressors = [r for r in important_regressors if r not in dropped_cols]
@@ -1715,6 +1726,10 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         'monday_effect',
         'notice_flag',
         'deadline_flag',
+        'county_holiday_flag',
+        'press_release_flag',
+        'is_campaign',
+        'spike_flag',
     ]
     
     # Add regressors to each model and fit them
