@@ -81,6 +81,13 @@ running the model:
 python pipeline.py config.yaml --check-baseline-coverage
 ```
 
+Alternatively `--baseline-coverage` prints the value and exits with code 1 when
+the coverage falls outside the 88–92% range:
+
+```bash
+python pipeline.py config.yaml --baseline-coverage
+```
+
 The CLI now serves as a thin wrapper around the YAML-driven pipeline. All model
 parameters, including input and output paths, are read from `config.yaml`.
 
