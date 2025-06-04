@@ -161,6 +161,7 @@ SHOCK_EVENTS = {
     "bill_mailed",
     "first_half_due",
     "late_fee_start",
+    "second_half_due",
     "nov_mailed",
     "amendment_briefing",
     "media_spot",
@@ -2829,21 +2830,35 @@ def monitor_residuals(forecast: pd.DataFrame, window: int = 14, multiplier: floa
     return result
 
 
-def blend_short_term(forecast: pd.DataFrame, history: pd.DataFrame, weight: float = 0.5) -> pd.DataFrame:
-    """Blend naive and Prophet predictions for short horizons."""
+def blend_short_term(
+    forecast: pd.DataFrame, history: pd.DataFrame, weight: float = 0.5
+) -> pd.DataFrame:
+    """Blend naive and Prophet predictions using recent actuals."""
 
     last_date = history.index.max()
     blended = forecast.copy()
     for idx, row in blended.iterrows():
-        if (row["ds"] - last_date).days <= 1:
-            prev_week = row["ds"] - pd.Timedelta(days=7)
-            if prev_week in history.index:
+        horizon = (row["ds"] - last_date).days
+        if horizon <= 1:
+            prev_day = row["ds"] - pd.Timedelta(days=1)
+            if prev_day in history.index:
+                naive = history.loc[prev_day, "call_count"]
+            else:
+                prev_week = row["ds"] - pd.Timedelta(days=7)
+                if prev_week not in history.index:
+                    continue
                 naive = history.loc[prev_week, "call_count"]
+
+            if "yhat" in blended.columns:
                 blended.at[idx, "yhat"] = weight * naive + (1 - weight) * row["yhat"]
-                if "yhat_lower" in blended.columns:
-                    blended.at[idx, "yhat_lower"] = weight * naive + (1 - weight) * row["yhat_lower"]
-                if "yhat_upper" in blended.columns:
-                    blended.at[idx, "yhat_upper"] = weight * naive + (1 - weight) * row["yhat_upper"]
+            if "yhat_lower" in blended.columns:
+                blended.at[idx, "yhat_lower"] = weight * naive + (
+                    1 - weight
+                ) * row["yhat_lower"]
+            if "yhat_upper" in blended.columns:
+                blended.at[idx, "yhat_upper"] = weight * naive + (
+                    1 - weight
+                ) * row["yhat_upper"]
     return blended
 
 

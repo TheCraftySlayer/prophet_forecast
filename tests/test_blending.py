@@ -14,6 +14,6 @@ def test_blend_short_term():
         index=pd.date_range('2023-12-18', periods=14, freq='D'),
     )
     blended = blend_short_term(forecast, history, weight=0.5)
-    assert blended.loc[0, 'yhat'] == 53.5
+    assert blended.loc[0, 'yhat'] == 56.5
     assert blended.loc[1, 'yhat'] == 200.0
 

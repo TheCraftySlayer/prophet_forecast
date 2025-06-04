@@ -14,3 +14,4 @@ start_date,end_date,event,feature
 2025-04-23,,KOAT prime-time segment amplifying the freeze program,media_spot
 2025-05-01,,2025 NOV mailed (30-day delay vs statutory),nov_mailed
 2025-05-01,2025-06-02,Protest window (delayed),days_to_protest_deadline
+2024-05-10,,Second-half 2023 payment due,second_half_due
