@@ -160,6 +160,9 @@ same weekday in the prior week and the corresponding MAE, RMSE and Poisson
 deviance metrics are also included. The report additionally lists the predicted call volume for
 the upcoming business day in a dedicated sheet.
 
+Each run logs the training window, any parameter overrides and a SHA1 hash of the
+serialized model so forecasts can be exactly reproduced.
+
 ## Model specification
 
 The Prophet model uses additive seasonality with linear growth. Default
