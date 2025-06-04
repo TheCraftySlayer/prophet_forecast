@@ -73,6 +73,7 @@ from prophet_analysis import (
     compute_naive_baseline,
     export_baseline_forecast,
     export_prophet_forecast,
+    blend_short_term,
     model_to_json,
     write_summary,
     select_likelihood,
@@ -353,7 +354,8 @@ def run_forecast(cfg: dict) -> None:
     write_summary(summary, out_dir / "summary.csv")
     write_summary(horizon_table, out_dir / "horizon_metrics.csv")
     diag.to_csv(out_dir / "ljung_box.csv", index=False)
-    export_prophet_forecast(model, forecast, df, out_dir, scaler=None)
+    forecast_blend = blend_short_term(forecast, df)
+    export_prophet_forecast(model, forecast_blend, df, out_dir, scaler=None)
     export_baseline_forecast(df, out_dir)
 
  # ------------------------------------------------------------------
