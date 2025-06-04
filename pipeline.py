@@ -519,6 +519,7 @@ def run_forecast(cfg: dict) -> None:
 
 def check_baseline_coverage(config_path: Path) -> None:
     """Print naive baseline coverage and exit if outside 88-92 percent."""
+    logger = logging.getLogger(__name__)
     cfg = load_config(config_path)
     calls = load_time_series(Path(cfg["data"]["calls"]), metric="call")
     df = pd.DataFrame({"call_count": calls})
