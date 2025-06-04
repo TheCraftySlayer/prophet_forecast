@@ -17,3 +17,11 @@
 - Hourly forecasts exclude weekends and any times outside of 08:00–17:00.
   This masked-window assumption ensures the model represents normal
   operating hours only.
+
+## Model Log - 2025-06-18
+
+- Computed hourly mean and standard deviation for each weekday-hour pair.
+- Stored the table as ``hourly_stats.csv`` at every retrain.
+- Added ``open_flag`` and ``mean_hour`` regressors with prior scales 20 and 5
+  respectively. Models are promoted only when they improve MAE or WAPE by at
+  least 10 % over the naive mean baseline.

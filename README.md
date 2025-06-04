@@ -137,6 +137,13 @@ hourly basis and then sum the predictions to daily totals. It falls back to a
 naive mean forecast when the real ``prophet`` package is unavailable so the unit
 tests still run with the bundled stubs.
 
+The hourly workflow now records the mean and standard deviation for each
+weekday-hour combination. These statistics are written to ``hourly_stats.csv``
+whenever the model retrains. Two regressors expose them to Prophet: ``open_flag``
+marks business hours while ``mean_hour`` represents the typical call volume for
+that hour of the week. A new model is only promoted when it beats the naive mean
+benchmark by at least 10 % in MAE or WAPE.
+
 Alternatively, the YAML-driven pipeline can perform the same operation when
 `model.use_hourly` is enabled.
 
