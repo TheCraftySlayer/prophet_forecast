@@ -155,7 +155,15 @@ def run_forecast(cfg: dict) -> None:
         df_hourly["ds"] = pd.to_datetime(df_hourly.iloc[:, 0], format="%m/%d/%Y %H:%M")
         df_hourly["y"] = df_hourly.iloc[:, 1].astype(float)
 
+        # --------------------------------------------------------------
+        # Restrict evaluation to open hours (weekdays 08:00-16:59)
+        # --------------------------------------------------------------
+        df_hourly = df_hourly[df_hourly.ds.dt.weekday < 5]
+        df_hourly = df_hourly[(df_hourly.ds.dt.hour >= 8) & (df_hourly.ds.dt.hour < 17)]
+
         def _evaluate_hourly(df: pd.DataFrame, fcst: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+            fcst = fcst[fcst.ds.dt.weekday < 5]
+            fcst = fcst[(fcst.ds.dt.hour >= 8) & (fcst.ds.dt.hour < 17)]
             joined = pd.concat(
                 [
                     df.set_index("ds")["y"].resample("D").sum().rename("actual"),
