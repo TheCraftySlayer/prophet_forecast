@@ -76,6 +76,7 @@ from prophet_analysis import (
     tune_prophet_hyperparameters,
     build_prophet_kwargs,
     compute_naive_baseline,
+    load_time_series,
     export_baseline_forecast,
     export_prophet_forecast,
     monitor_residuals,
@@ -515,6 +516,24 @@ def run_forecast(cfg: dict) -> None:
     logger.info("params: %s", json.dumps(model_params))
 
 
+def check_baseline_coverage(config_path: Path) -> None:
+    """Print naive baseline coverage and exit if outside 88-92 percent."""
+    cfg = load_config(config_path)
+    calls = load_time_series(Path(cfg["data"]["calls"]), metric="call")
+    df = pd.DataFrame({"call_count": calls})
+    hourly_df = None
+    hourly_path = cfg["data"].get("hourly_calls")
+    if hourly_path:
+        hourly = load_time_series(Path(hourly_path), metric="call")
+        if not hourly.empty:
+            hourly_df = pd.DataFrame({"ds": hourly.index, "y": hourly.values})
+    _, metrics, _ = compute_naive_baseline(df, hourly_df=hourly_df)
+    coverage = metrics.loc[metrics["metric"] == "Coverage", "value"].iloc[0]
+    print(f"Naive baseline coverage: {coverage:.2f}%")
+    if coverage < 88 or coverage > 92:
+        raise SystemExit(1)
+
+
 def pipeline(config_path: Path) -> None:
     """Load configuration from ``config_path`` and run the forecast pipeline."""
     cfg = load_config(config_path)
@@ -530,5 +549,13 @@ if __name__ == "__main__":
 
     p = argparse.ArgumentParser(description="Run forecast pipeline")
     p.add_argument("config", type=Path, default=Path("config.yaml"), nargs="?")
+    p.add_argument(
+        "--check-baseline-coverage",
+        action="store_true",
+        help="Verify naive baseline coverage is between 88 and 92",
+    )
     args = p.parse_args()
-    pipeline(args.config)
+    if args.check_baseline_coverage:
+        check_baseline_coverage(args.config)
+    else:
+        pipeline(args.config)
