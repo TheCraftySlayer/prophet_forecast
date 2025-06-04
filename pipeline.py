@@ -81,6 +81,7 @@ from prophet_analysis import (
     export_baseline_forecast,
     export_prophet_forecast,
     monitor_residuals,
+    monitor_bias,
     blend_short_term,
     model_to_json,
     write_summary,
@@ -420,12 +421,18 @@ def run_forecast(cfg: dict) -> None:
         model, forecast_blend, df, out_dir, scaler=None
     )
     flagged = monitor_residuals(pred_df)
-    if not flagged.empty:
-        logger.warning(
-            "Residuals exceeded threshold on %s", 
-            ", ".join(flagged['ds'].dt.strftime('%Y-%m-%d'))
+    flagged_bias = monitor_bias(pred_df)
+    if not flagged.empty or not flagged_bias.empty:
+        all_dates = sorted(
+            set(flagged['ds'].dt.strftime('%Y-%m-%d')).union(
+                flagged_bias['ds'].dt.strftime('%Y-%m-%d')
+            )
         )
-        logger.info("Retraining model due to residual spike")
+        logger.warning(
+            "Residuals/bias exceeded threshold on %s",
+            ", ".join(all_dates)
+        )
+        logger.info("Retraining model due to residual or bias spike")
         model, forecast, future = train_prophet_model(
             prophet_df,
             holidays,

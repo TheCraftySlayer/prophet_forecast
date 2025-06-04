@@ -2869,6 +2869,22 @@ def monitor_residuals(forecast: pd.DataFrame, window: int = 14, multiplier: floa
     return result
 
 
+def monitor_bias(
+    forecast: pd.DataFrame, window: int = 3, threshold: float = 5.0
+) -> pd.DataFrame:
+    """Return rows where absolute bias stays above ``threshold`` for ``window`` days."""
+
+    if "actual" not in forecast.columns or "yhat" not in forecast.columns:
+        raise ValueError("forecast must contain 'actual' and 'yhat' columns")
+
+    df = forecast.copy()
+    if "error" not in df.columns:
+        df["error"] = df["actual"] - df["yhat"]
+    mask = df["error"].abs() >= threshold
+    flagged = mask.rolling(window, min_periods=window).sum() == window
+    return df.loc[flagged, ["ds", "error"]].copy()
+
+
 def blend_short_term(
     forecast: pd.DataFrame, history: pd.DataFrame, weight: float = 0.5
 ) -> pd.DataFrame:
