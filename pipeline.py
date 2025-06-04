@@ -518,7 +518,10 @@ def run_forecast(cfg: dict) -> None:
 
 
 def check_baseline_coverage(config_path: Path) -> None:
-    """Print naive baseline coverage and exit if outside 88-92 percent."""
+    """Print naive baseline coverage and exit if outside 88‑92 percent.
+
+    Uses ``pandas`` from the open‑source ecosystem to load the data.
+    """
     logger = logging.getLogger(__name__)
     cfg = load_config(config_path)
     calls = load_time_series(Path(cfg["data"]["calls"]), metric="call")
@@ -561,8 +564,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Verify naive baseline coverage is between 88 and 92",
     )
+    p.add_argument(
+        "--baseline-coverage",
+        action="store_true",
+        help="Print naive baseline coverage and exit 1 if outside 88-92",
+    )
     args = p.parse_args()
-    if args.check_baseline_coverage:
+    if args.baseline_coverage or args.check_baseline_coverage:
         check_baseline_coverage(args.config)
     else:
         pipeline(args.config)
