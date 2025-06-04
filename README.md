@@ -253,3 +253,23 @@ make model     # train the Prophet model
 make metrics   # echo where metrics are exported
 ```
 
+## Forecast diagnostics
+
+Recent evaluations uncovered structural drift in the hourly series:
+
+- **Error growth** – MAE nearly doubled between February and May while RMSE
+  climbed even faster, pointing to heavy-tailed risk.
+- **Bias instability** – alternating bias signs suggest weekly seasonality no
+  longer matches demand.
+- **Volatility surge April–May** – spikes in RMSE indicate unmodelled shocks
+  such as policy deadlines or outreach campaigns.
+- **Scale-dependent error** – MAPE stays above 60%, meaning quiet periods are
+  disproportionately affected.
+
+To mitigate these issues the pipeline now performs residual and bias
+monitoring. A retrain is triggered whenever residuals exceed twice the rolling
+14‑day MAE **or** when absolute bias surpasses ±5 calls for three consecutive
+days. Adding event-based regressors and more frequent retraining keeps the
+model in sync with shifting patterns, while explicit variance checks allow the
+forecast to react quickly to demand spikes.
+
