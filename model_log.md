@@ -11,3 +11,9 @@
 
 - Added standardized 7-day lags for visitor and query counts as new regressors.
 - These features explain more than 65% of the forecastable variance one week ahead.
+
+## Model Log - 2025-06-10
+
+- Hourly forecasts exclude weekends and any times outside of 08:00–17:00.
+  This masked-window assumption ensures the model represents normal
+  operating hours only.
