@@ -143,11 +143,13 @@ def run_forecast(cfg: dict) -> None:
         if not hourly_path:
             raise ValueError("hourly_calls path required when use_hourly is true")
         periods = cfg["model"].get("hourly_periods", 24 * 7)
-        model, hourly_fcst, daily_fcst = forecast_hourly_to_daily(
+        model, hourly_fcst, daily_fcst, hour_metrics = forecast_hourly_to_daily(
             Path(hourly_path), periods=periods
         )
         hourly_fcst.to_csv(out_dir / "hourly_forecast.csv", index=False)
         daily_fcst.to_csv(out_dir / "daily_forecast.csv")
+        if hour_metrics is not None:
+            hour_metrics.to_csv(out_dir / "hour_of_day_metrics.csv", index=False)
 
         df_hourly = pd.read_csv(hourly_path)
         df_hourly["ds"] = pd.to_datetime(df_hourly.iloc[:, 0], format="%m/%d/%Y %H:%M")
