@@ -26,6 +26,7 @@ model:
   capacity: 1000
   enable_mcmc: false
   uncertainty_samples: 300
+  rolling_months: 12
 events:
   policy_start: '2025-05-01'
   campaign:
@@ -34,6 +35,9 @@ events:
   flat_period:
     start: '2025-05-06'
     end: '2025-05-13'
+  volume_shocks:
+    - '2025-01-15'
+    - '2025-03-15'
   changepoints:
     - '2023-11-01'
     - '2024-04-15'

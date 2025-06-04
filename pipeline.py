@@ -82,6 +82,7 @@ from prophet_analysis import (
     export_prophet_forecast,
     monitor_residuals,
     monitor_bias,
+    detect_drift,
     blend_short_term,
     model_to_json,
     write_summary,
@@ -322,6 +323,13 @@ def run_forecast(cfg: dict) -> None:
         scale_features=True,
         hourly_call_path=Path(cfg["data"].get("hourly_calls")) if cfg["data"].get("hourly_calls") else None,
     )
+
+    roll_months = cfg["model"].get("rolling_months")
+    if roll_months:
+        cutoff = df.index.max() - pd.DateOffset(months=int(roll_months))
+        df = df.loc[df.index >= cutoff]
+        regressors = regressors.loc[df.index]
+
     prophet_df = prepare_prophet_data(df)
 
     prophet_kwargs = build_prophet_kwargs(cfg["model"])
@@ -405,6 +413,7 @@ def run_forecast(cfg: dict) -> None:
     )
     flagged = monitor_residuals(pred_df)
     flagged_bias = monitor_bias(pred_df)
+    drift_detected = detect_drift(pred_df)
     if not flagged.empty or not flagged_bias.empty:
         all_dates = sorted(
             set(flagged['ds'].dt.strftime('%Y-%m-%d')).union(
@@ -416,6 +425,20 @@ def run_forecast(cfg: dict) -> None:
             ", ".join(all_dates)
         )
         logger.info("Retraining model due to residual or bias spike")
+        model, forecast, future = train_prophet_model(
+            prophet_df,
+            holidays,
+            regressors,
+            future_periods=30,
+            model_params=model_params,
+            prophet_kwargs=prophet_kwargs,
+            likelihood=likelihood,
+            transform=cfg["model"].get("transform", "log"),
+        )
+        forecast_blend = blend_short_term(forecast, df)
+        export_prophet_forecast(model, forecast_blend, df, out_dir, scaler=None)
+    elif drift_detected:
+        logger.info("Retraining model due to drift detection")
         model, forecast, future = train_prophet_model(
             prophet_df,
             holidays,

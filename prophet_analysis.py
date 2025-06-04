@@ -154,6 +154,7 @@ REGRESSORS = [
     "press_release_flag",
     "is_campaign",
     "spike_flag",
+    "shock_flag",
 ]
 
 # Event categories used when encoding assessor events
@@ -441,7 +442,13 @@ def compile_custom_stan_model(likelihood: str) -> Path | None:
 
     if likelihood == 'poisson':
         model_text = model_text.replace('normal_lpdf(y', 'poisson_log_lpmf(y')
-    elif likelihood in {'neg_binomial', 'negative-binomial', 'negative_binomial'}:
+    elif likelihood in {
+        'neg_binomial',
+        'negative-binomial',
+        'negative_binomial',
+        'poisson-gamma',
+        'poisson_gamma',
+    }:
         if 'phi' not in model_text:
             model_text = model_text.replace('real sigma;', 'real<lower=0> phi;\n  real sigma;')
         model_text = model_text.replace('normal_lpdf(y', 'neg_binomial_2_log_lpmf(y')
@@ -930,6 +937,7 @@ def prepare_data(
     df['county_holiday_flag'] = df.index.isin(holiday_dates).astype(int)
     df['deadline_flag'] = 0
     df['notice_flag'] = 0
+    df['shock_flag'] = 0
     for d in deadline_dates:
         window = pd.date_range(d - pd.Timedelta(days=5), d + pd.Timedelta(days=1))
         df.loc[df.index.isin(window), 'deadline_flag'] = 1
@@ -937,8 +945,14 @@ def prepare_data(
         window = pd.date_range(d, d + pd.Timedelta(days=7))
         df.loc[df.index.isin(window), 'notice_flag'] = 1
 
+    # Additional shock events provided via config
+    shock_dates = [pd.to_datetime(s) for s in events.get('volume_shocks', [])]
+    for d in shock_dates:
+        df.loc[df.index == d.normalize(), 'shock_flag'] = 1
+
     df['deadline_flag'] = df['deadline_flag'].astype(int)
     df['notice_flag'] = df['notice_flag'].astype(int)
+    df['shock_flag'] = df['shock_flag'].astype(int)
 
     # Flag for post-policy period
     policy_start = pd.to_datetime(events.get("policy_start", "2025-05-01"))
@@ -1235,7 +1249,7 @@ def train_prophet_model(
         model_params: Optional dictionary of parameters to pass to Prophet
             (may include ``capacity`` for logistic growth)
         likelihood: Distribution for the likelihood ('normal', 'poisson',
-            or 'neg_binomial')
+            'poisson_gamma' or 'neg_binomial')
         transform: Optional transformation to apply to the target ('log' or
             'box-cox'). ``log_transform`` is honored when ``transform`` is None.
         If ``capacity`` is not supplied with logistic growth, it defaults to
@@ -1374,6 +1388,7 @@ def train_prophet_model(
         'press_release_flag',
         'is_campaign',
         'spike_flag',
+        'shock_flag',
     ]
 
     important_regressors = [r for r in important_regressors if r not in dropped_cols]
@@ -1737,6 +1752,7 @@ def create_simple_ensemble(prophet_df, holidays_df, regressors_df):
         'press_release_flag',
         'is_campaign',
         'spike_flag',
+        'shock_flag',
     ]
     
     # Add regressors to each model and fit them
@@ -2901,6 +2917,22 @@ def monitor_bias(
     mask = df["error"].abs() >= threshold
     flagged = mask.rolling(window, min_periods=window).sum() == window
     return df.loc[flagged, ["ds", "error"]].copy()
+
+
+def detect_drift(
+    forecast: pd.DataFrame, threshold: float = 20.0, window: int = 3
+) -> bool:
+    """Return ``True`` if MAE exceeds ``threshold`` for ``window`` days."""
+
+    if {"actual", "yhat"} - set(forecast.columns):
+        raise ValueError("forecast must contain 'actual' and 'yhat'")
+
+    df = forecast.copy()
+    df["error"] = df["actual"] - df["yhat"]
+    df["abs_error"] = df["error"].abs()
+    exceed = df["abs_error"] > threshold
+    drift = exceed.rolling(window, min_periods=window).sum() == window
+    return bool(drift.iloc[-1])
 
 
 def blend_short_term(
