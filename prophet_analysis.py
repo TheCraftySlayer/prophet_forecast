@@ -2787,10 +2787,42 @@ def export_prophet_forecast(model, forecast, df, output_dir, scaler=None):
     result_df = pd.concat([result_df, pd.DataFrame([next_row])], ignore_index=True)
     result_df = result_df.round(3)
     result_df.to_csv(output_file, index=False)
-    
+
     logger.info(f"Forecast exported to {output_file}")
 
-    return output_file
+    return output_file, result_df
+
+
+def monitor_residuals(forecast: pd.DataFrame, window: int = 14, multiplier: float = 2.0) -> pd.DataFrame:
+    """Return rows where residual exceeds ``multiplier`` × rolling ``window`` MAE.
+
+    Parameters
+    ----------
+    forecast : DataFrame
+        DataFrame with ``ds``, ``yhat`` and ``actual`` columns.
+    window : int, optional
+        Rolling window size for the MAE calculation, by default 14.
+    multiplier : float, optional
+        Threshold multiplier applied to the rolling MAE, by default 2.0.
+
+    Returns
+    -------
+    DataFrame
+        Subset with ``ds``, ``error`` and ``rolling_mae`` for flagged days.
+    """
+
+    if "actual" not in forecast.columns or "yhat" not in forecast.columns:
+        raise ValueError("forecast must contain 'actual' and 'yhat' columns")
+
+    df = forecast.copy()
+    if "error" not in df.columns:
+        df["error"] = df["actual"] - df["yhat"]
+    df["abs_error"] = df["error"].abs()
+    roll_mae = df["abs_error"].rolling(window, min_periods=1).mean()
+    flagged = df["abs_error"] > multiplier * roll_mae
+    result = df.loc[flagged, ["ds", "error"]].copy()
+    result["rolling_mae"] = roll_mae[flagged]
+    return result
 
 
 def blend_short_term(forecast: pd.DataFrame, history: pd.DataFrame, weight: float = 0.5) -> pd.DataFrame:
