@@ -152,13 +152,14 @@ def run_forecast(cfg: dict) -> None:
         if not hourly_path:
             raise ValueError("hourly_calls path required when use_hourly is true")
         periods = cfg["model"].get("hourly_periods", 24 * 7)
-        model, hourly_fcst, daily_fcst, hour_metrics = forecast_hourly_to_daily(
+        model, hourly_fcst, daily_fcst, hour_metrics, hour_stats = forecast_hourly_to_daily(
             Path(hourly_path), periods=periods
         )
         hourly_fcst.to_csv(out_dir / "hourly_forecast.csv", index=False)
         daily_fcst.to_csv(out_dir / "daily_forecast.csv")
         if hour_metrics is not None:
             hour_metrics.to_csv(out_dir / "hour_of_day_metrics.csv", index=False)
+        hour_stats.to_csv(out_dir / "hourly_stats.csv", index=False)
 
         df_hourly = pd.read_csv(hourly_path)
         df_hourly["ds"] = pd.to_datetime(df_hourly.iloc[:, 0], format="%m/%d/%Y %H:%M")
@@ -282,9 +283,19 @@ def run_forecast(cfg: dict) -> None:
         metrics = pd.concat([metrics_baseline, prophet_metrics], ignore_index=True)
         write_summary(metrics, out_dir / "metrics.csv")
 
-        if cfg["model"].get("weekly_incremental") and model_to_json is not None:
+        mae_base = baseline_metrics.loc[baseline_metrics["metric"] == "MAE", "value"].iloc[0]
+        mae_prophet = summary.loc[summary["metric"] == "MAE", "value"].iloc[0]
+        wape_base = baseline_metrics.loc[baseline_metrics["metric"] == "WAPE", "value"].iloc[0]
+        wape_prophet = summary.loc[summary["metric"] == "WAPE", "value"].iloc[0]
+        improve_mae = (mae_base - mae_prophet) / mae_base * 100 if mae_base else 0
+        improve_wape = (wape_base - wape_prophet) / wape_base * 100 if wape_base else 0
+        promote = max(improve_mae, improve_wape) >= 10
+
+        if promote and cfg["model"].get("weekly_incremental") and model_to_json is not None:
             with open(base_out / "latest_model.json", "w") as f:
                 f.write(model_to_json(model))
+        else:
+            logger.info("Model improvement %.1f%% (MAE) %.1f%% (WAPE)", improve_mae, improve_wape)
 
         train_window = {
             "start": df_hourly["ds"].min().strftime("%Y-%m-%d"),
@@ -494,9 +505,19 @@ def run_forecast(cfg: dict) -> None:
     )
     write_summary(metrics, out_dir / "metrics.csv")
 
-    if cfg["model"].get("weekly_incremental") and model_to_json is not None:
+    mae_base = baseline_metrics.loc[baseline_metrics["metric"] == "MAE", "value"].iloc[0]
+    mae_prophet = summary.loc[summary["metric"] == "MAE", "value"].iloc[0]
+    wape_base = baseline_metrics.loc[baseline_metrics["metric"] == "WAPE", "value"].iloc[0]
+    wape_prophet = summary.loc[summary["metric"] == "WAPE", "value"].iloc[0]
+    improve_mae = (mae_base - mae_prophet) / mae_base * 100 if mae_base else 0
+    improve_wape = (wape_base - wape_prophet) / wape_base * 100 if wape_base else 0
+    promote = max(improve_mae, improve_wape) >= 10
+
+    if promote and cfg["model"].get("weekly_incremental") and model_to_json is not None:
         with open(base_out / "latest_model.json", "w") as f:
             f.write(model_to_json(model))
+    else:
+        logger.info("Model improvement %.1f%% (MAE) %.1f%% (WAPE)", improve_mae, improve_wape)
 
     train_window = {
         "start": df.index.min().strftime("%Y-%m-%d"),
