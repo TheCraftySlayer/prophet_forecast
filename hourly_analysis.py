@@ -5,13 +5,33 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 
+
+def _hourly_mae_by_hour(df: pd.DataFrame, fcst: pd.DataFrame) -> pd.DataFrame:
+    """Return MAE and bias per hour-of-day."""
+    merged = pd.merge(df, fcst[["ds", "yhat"]], on="ds", how="left")
+    merged.dropna(subset=["yhat"], inplace=True)
+    merged["hour"] = merged["ds"].dt.hour
+    merged["error"] = merged["y"] - merged["yhat"]
+    metrics = (
+        merged.groupby("hour")["error"]
+        .agg(MAE=lambda x: x.abs().mean(), bias="mean")
+        .reset_index()
+    )
+    return metrics
+
+
 try:
     from prophet import Prophet
 except Exception:  # pragma: no cover - stub missing
     Prophet = None  # type: ignore
 
 
-def forecast_hourly_to_daily(path: str | Path, periods: int = 24 * 7):
+def forecast_hourly_to_daily(
+    path: str | Path,
+    periods: int = 24 * 7,
+    *,
+    bias_threshold: float = 1.0,
+):
     """Forecast hourly call volume and aggregate to daily totals.
 
     If the real ``prophet`` package is not available a naive average forecast is
@@ -21,11 +41,29 @@ def forecast_hourly_to_daily(path: str | Path, periods: int = 24 * 7):
     df["ds"] = pd.to_datetime(df.iloc[:, 0], format="%m/%d/%Y %H:%M")
     df["y"] = df.iloc[:, 1].astype(float)
 
+    hourly_metrics = None
+
     if Prophet is not None and hasattr(Prophet, "fit"):
-        model = Prophet(daily_seasonality=True, weekly_seasonality=True)
+        prior = 10.0
+        model = Prophet(
+            daily_seasonality=True,
+            weekly_seasonality=True,
+            seasonality_prior_scale=prior,
+        )
         model.fit(df[["ds", "y"]])
         future = model.make_future_dataframe(periods=periods, freq="H")
         forecast = model.predict(future)
+        hourly_metrics = _hourly_mae_by_hour(df[["ds", "y"]], forecast)
+        if hourly_metrics["bias"].abs().max() > bias_threshold:
+            prior *= 2
+            model = Prophet(
+                daily_seasonality=True,
+                weekly_seasonality=True,
+                seasonality_prior_scale=prior,
+            )
+            model.fit(df[["ds", "y"]])
+            forecast = model.predict(future)
+            hourly_metrics = _hourly_mae_by_hour(df[["ds", "y"]], forecast)
     else:  # pragma: no cover - used in test environment without prophet
         model = None
         history = df[["ds", "y"]].rename(columns={"y": "yhat"})
@@ -37,9 +75,10 @@ def forecast_hourly_to_daily(path: str | Path, periods: int = 24 * 7):
         )
         future = pd.DataFrame({"ds": future_dates, "yhat": mean_val})
         forecast = pd.concat([history, future], ignore_index=True)
+        hourly_metrics = _hourly_mae_by_hour(df[["ds", "y"]], forecast)
 
     daily = forecast.set_index("ds").resample("D")["yhat"].sum()
-    return model, forecast, daily
+    return model, forecast, daily, hourly_metrics
 
 
 if __name__ == "__main__":
