@@ -22,3 +22,11 @@ def test_encode_policy_step():
     events = df[df["event"] == "hb47_effective"]
     flags = encode_assessor_events(idx, events)
     assert list(flags["hb47_effective"]) == [0, 1, 1]
+
+
+def test_encode_second_half_due():
+    df = get_holidays_dataframe()
+    idx = pd.date_range("2024-05-09", periods=2, freq="D")
+    events = df[df["event"] == "second_half_due"]
+    flags = encode_assessor_events(idx, events)
+    assert flags.loc[pd.Timestamp("2024-05-10"), "second_half_due"] == 1

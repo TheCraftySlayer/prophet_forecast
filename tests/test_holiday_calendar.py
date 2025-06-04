@@ -15,6 +15,7 @@ def test_holiday_calendar_contents():
 def test_assessor_events_included():
     df = get_holidays_dataframe()
     assert 'bill_mailed' in df['event'].values
+    assert 'second_half_due' in df['event'].values
 
 
 def test_holiday_calendar_dedup_gaps():
