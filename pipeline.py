@@ -172,6 +172,7 @@ def run_forecast(cfg: dict) -> None:
                 ).mean()
                 * 100
             )
+            zero_acc = ((joined["actual"] == 0) == (joined["yhat"] < 0.5)).mean() * 100
             smape = (
                 2
                 * joined["abs_error"]
@@ -180,12 +181,13 @@ def run_forecast(cfg: dict) -> None:
             ).replace([np.inf, -np.inf], np.nan).mean() * 100
             summary = pd.DataFrame(
                 {
-                    "metric": ["MAE", "RMSE", "sMAPE", "Coverage"],
+                    "metric": ["MAE", "RMSE", "sMAPE", "Coverage", "ZeroAcc"],
                     "value": [
                         joined["abs_error"].mean(),
                         np.sqrt((joined["error"] ** 2).mean()),
                         smape,
                         coverage,
+                        zero_acc,
                     ],
                 }
             )
@@ -205,10 +207,11 @@ def run_forecast(cfg: dict) -> None:
                                 (sub["actual"].abs() + sub["yhat"].abs())
                             ).replace([np.inf, -np.inf], np.nan).mean()
                             * 100,
+                            ((sub["actual"] == 0) == (sub["yhat"] < 0.5)).mean() * 100,
                         ]
                     )
             horizon_df = pd.DataFrame(
-                horizon_rows, columns=["horizon_days", "MAE", "RMSE", "sMAPE"]
+                horizon_rows, columns=["horizon_days", "MAE", "RMSE", "sMAPE", "ZeroAcc"]
             )
             return summary, horizon_df
 
@@ -248,7 +251,7 @@ def run_forecast(cfg: dict) -> None:
         prophet_metrics["model"] = "prophet"
         prophet_metrics["coverage"] = coverage
 
-        wanted = ["model", "horizon", "MAE", "RMSE", "sMAPE", "coverage"]
+        wanted = ["model", "horizon", "MAE", "RMSE", "sMAPE", "coverage", "ZeroAcc"]
         metrics_baseline = metrics_baseline[[c for c in wanted if c in metrics_baseline]]
         prophet_metrics = prophet_metrics[[c for c in wanted if c in prophet_metrics]]
 
@@ -418,7 +421,7 @@ def run_forecast(cfg: dict) -> None:
     prophet_metrics["model"] = "prophet"
     prophet_metrics["coverage"] = coverage
 
-    wanted = ["model", "horizon", "MAE", "RMSE", "sMAPE", "coverage"]
+    wanted = ["model", "horizon", "MAE", "RMSE", "sMAPE", "coverage", "ZeroAcc"]
     metrics_baseline = metrics_baseline[[c for c in wanted if c in metrics_baseline]]
     prophet_metrics  = prophet_metrics [[c for c in wanted if c in prophet_metrics ]]
 

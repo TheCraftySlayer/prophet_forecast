@@ -10,7 +10,9 @@ def test_baseline_returns_smape():
     df = pd.DataFrame({'call_count': range(30)}, index=dates)
     _, metrics, horizon = compute_naive_baseline(df)
     assert 'sMAPE' in metrics['metric'].tolist()
+    assert 'ZeroAcc' in metrics['metric'].tolist()
     assert 'sMAPE' in horizon.columns
+    assert 'ZeroAcc' in horizon.columns
 
 
 def _stub_cv(*_args, **_kwargs):
@@ -34,4 +36,6 @@ def test_prophet_evaluation_includes_smape():
          patch('prophet_analysis._ensure_tbb_on_path'):
         _, horizon_table, summary, _, _ = evaluate_prophet_model(model, prophet_df)
     assert 'sMAPE' in summary['metric'].tolist()
+    assert 'ZeroAcc' in summary['metric'].tolist()
     assert 'sMAPE' in horizon_table.columns
+    assert 'ZeroAcc' in horizon_table.columns
