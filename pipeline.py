@@ -59,6 +59,7 @@ def safe_git_hash() -> str | None:
         return None
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 from holidays_calendar import get_holidays_dataframe
 from prophet_analysis import (
@@ -342,7 +343,6 @@ def run_forecast(cfg: dict) -> None:
  # ------------------------------------------------------------------
     # Guarantee that both result-tables contain a “MAPE” column
     # ------------------------------------------------------------------
-    import numpy as np
 
     def _ensure_mape(table: pd.DataFrame, obs: str = "y", pred: str = "yhat"):
         """
