@@ -61,6 +61,50 @@ line endings, which can cause `cmd.exe` to ignore the script. You can convert
 the file with a tool like `unix2dos` or by opening and resaving it in a
 Windows text editor.
 
+## Chatbot Orchestrator
+
+The repository now ships with a terminal UI for orchestrating four CustomGPT assessor
+agents. Launch the interface after installing dependencies when you want to consult one of the
+experts alongside the forecasting tools.
+
+### Available agents
+
+- **A.C.E Assessor’s Cartographic Explorer** — project `83668`
+- **A.C.E (Advisor for Clear Expectations)** — project `49501`
+- **A.C.E (Assessor's Compliance Expert)** — project `37400`
+- **A.C.E (Assessor's Community Educator)** — project `9262`
+
+### Setup
+
+1. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Export your CustomGPT API key:
+
+   ```bash
+   export CUSTOMGPT_API_KEY="<your-api-key>"
+   ```
+
+   Override the API base URL only if you are targeting a private deployment:
+
+   ```bash
+   export CUSTOMGPT_BASE_URL="https://api.customgpt.ai/v1"
+   ```
+
+### Running the UI
+
+Start the CLI from the repository root:
+
+```bash
+python -m chatbot_ui.ui
+```
+
+The prompt lists all agents and supports `/switch`, `/reset`, and `/exit` commands while you
+chat.
+
 ## Usage
 
 The real third-party packages are used by default. If you need to run the tests
